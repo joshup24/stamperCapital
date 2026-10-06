@@ -8,10 +8,15 @@ on:
         required: false
         default: ""
       only:
-        description: "Comma list of jobs, e.g. prices,quote (blank = all)"
+        description: "Comma list of jobs, e.g. prices,quote (blank = all that are due)"
         required: false
         default: ""
-  # Turn on once a manual run looks good:
+      force:
+        description: "Refetch everything for the chosen tickers, even if up to date"
+        type: boolean
+        default: false
+  # Turn on once a manual run looks good. Each run only fetches what is due, so a
+  # daily run is cheap: quotes every day, statements only after a company reports.
   # schedule:
   #   - cron: "30 22 * * 1-5"   # weekdays ~6:30pm ET, after the close
 
@@ -35,7 +40,9 @@ jobs:
           AV_CALLS_PER_MINUTE: ${{ vars.AV_CALLS_PER_MINUTE || '5' }}
           SYMBOLS: ${{ inputs.symbols }}
           ONLY: ${{ inputs.only }}
+          FORCE: ${{ inputs.force }}
         run: |
           ARGS=()
           if [ -n "$ONLY" ]; then ARGS+=(--only "$ONLY"); fi
+          if [ "$FORCE" = "true" ]; then ARGS+=(--force); fi
           python ingest/av_ingest.py "${ARGS[@]}" $SYMBOLS
