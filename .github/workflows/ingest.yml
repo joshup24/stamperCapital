@@ -1,0 +1,41 @@
+name: Alpha Vantage ingest
+
+on:
+  workflow_dispatch:
+    inputs:
+      symbols:
+        description: "Space-separated tickers (blank = all active)"
+        required: false
+        default: ""
+      only:
+        description: "Comma list of jobs, e.g. prices,quote (blank = all)"
+        required: false
+        default: ""
+  # Turn on once a manual run looks good:
+  # schedule:
+  #   - cron: "30 22 * * 1-5"   # weekdays ~6:30pm ET, after the close
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ingest/requirements.txt
+      - run: pip install -r ingest/requirements.txt
+      - name: Run ingest
+        env:
+          ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          AV_CALLS_PER_MINUTE: ${{ vars.AV_CALLS_PER_MINUTE || '5' }}
+          SYMBOLS: ${{ inputs.symbols }}
+          ONLY: ${{ inputs.only }}
+        run: |
+          ARGS=()
+          if [ -n "$ONLY" ]; then ARGS+=(--only "$ONLY"); fi
+          python ingest/av_ingest.py "${ARGS[@]}" $SYMBOLS
