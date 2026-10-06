@@ -1,0 +1,2 @@
+# stamperCapital
+Personal investing application. 
