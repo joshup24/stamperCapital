@@ -51,7 +51,10 @@ four quarters. Missing data stays missing (the old model turned "None" into 0 an
   add a late-afternoon quote refresh and use it.
 - FX history: Alpha Vantage FX_MONTHLY is short for CAD, CHF, MXN, ILS (16-39 months); the free ECB-based
   Frankfurter API (api.frankfurter.dev) has daily history from 1999 and is the planned fallback. NVO (DKK) has no rate yet.
-- Tickers with no Alpha Vantage data (e.g. NSRGY) need another source or manual entry. Semiannual reporters (BTI)
+- Tickers with no Alpha Vantage company data (`ticker.av_status = 'no_data'`: ETFs, OTC ADRs like NSRGY) still get quotes
+  and prices but no statements; they need another source or manual entry for fundamentals. BLD, PCH, FONR, ARCH, X, ESGR
+  had full data in his old OneDrive files but return an empty overview now (checked against statements since); his old files
+  could seed their history if Alpha Vantage still lacks them. Semiannual reporters (BTI)
   get no trailing-four-quarters value. Insurers' GAAP income swings on investment gains; he is the judge of that.
 - Still to load: his real universe (~730 tickers from his OneDrive file names) plus groups from `equity-groups.xlsm`.
 - Missing from the Power BI port: the Equity Summary's Alert, Mult-Cust and VoI measures (need his DAX).

@@ -41,9 +41,10 @@ industry, sector or ticker (`multiple_rule`, `ticker.category`, `ticker.multiple
 ## Refresh
 
 A run fetches only what is due: quotes daily, prices and overview monthly, statements only
-after a company has reported (from Alpha Vantage's earnings calendar). Tickers Alpha Vantage
-has no data for are marked `no_data` and skipped. Hitting the daily quota stops the run
-cleanly and the next run continues.
+after a company has reported (from Alpha Vantage's earnings calendar). Tickers with no company
+data (ETFs, OTC ADRs...) are marked `no_data`: no statements, but they still get quotes and
+prices, and their overview is rechecked monthly. An empty overview alone does not decide it,
+since some ordinary stocks come back empty: one statements call settles it first.
 
 ```
 python ingest/av_ingest.py                # everything due

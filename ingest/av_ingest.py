@@ -9,7 +9,9 @@ A run fetches only what is due:
   overview   every 30 days
   statements only when the company has reported since the last fetch (EARNINGS_CALENDAR),
              never fetched, or the last fetch is over 120 days old
-Tickers Alpha Vantage has no data for are marked 'no_data' and skipped from then on.
+Tickers with no company data (ETFs, OTC ADRs...) are marked 'no_data': no statements, but they
+still get quotes and prices, and the overview is rechecked monthly. An empty overview alone does
+not decide it: one INCOME_STATEMENT call checks whether statements exist first.
 A run that hits the daily quota stops cleanly and the next run picks up where it left off.
 Any other failure is retried after 10s, 30s and 60s, then recorded and skipped (the next run
 tries again, since nothing was marked done). Every retry and failure is also appended to
@@ -77,7 +79,12 @@ class AVLimitError(Exception):
 
 
 class SkipSymbol(Exception):
-    """Nothing usable for this symbol (ETF, foreign listing...). Skip its remaining jobs."""
+    """Nothing usable for this symbol. Skip its remaining jobs."""
+
+
+class NoFundamentals(SkipSymbol):
+    """Alpha Vantage has no company data for this ticker (an ETF, an OTC ADR...). Statements
+    are pointless, but prices and quotes often still work."""
 
 
 _recent_calls = deque()  # monotonic times of the calls made in the last minute
@@ -316,11 +323,29 @@ def ingest_prices(symbol):
     touch(symbol, "prices", max((r["month_end"] for r in rows), default=None))
 
 
+def has_statements(symbol):
+    """One INCOME_STATEMENT call, a single attempt: does Alpha Vantage have financial statements?
+    Any failure counts as no; the monthly overview recheck looks again."""
+    try:
+        d = av("INCOME_STATEMENT", symbol)
+    except AVLimitError:
+        raise
+    except Exception:
+        return False
+    return bool(d.get("annualReports") or d.get("quarterlyReports"))
+
+
 def ingest_overview(symbol):
     d = av("OVERVIEW", symbol)
-    if not d.get("Symbol"):  # ETFs, many foreign listings and unknown symbols come back empty
+    if not d.get("Symbol"):
+        # ETFs, OTC ADRs and unknown symbols come back empty, but so did BLD, PCH and FONR, which
+        # had full data in the old files. Statements decide. Either way look again in 30 days.
+        touch(symbol, "overview")
+        if has_statements(symbol):
+            sb.table("ticker").update({"av_status": "ok", "av_checked_at": now()}).eq("symbol", symbol).execute()
+            return
         sb.table("ticker").update({"av_status": "no_data", "av_checked_at": now()}).eq("symbol", symbol).execute()
-        raise SkipSymbol("no overview data (ETF, foreign listing or unknown symbol)")
+        raise NoFundamentals("no company data (ETF, OTC ADR or unknown symbol); prices and quotes continue")
     sb.table("company_overview").upsert({
         "symbol": symbol, "name": d.get("Name"), "asset_type": d.get("AssetType"),
         "exchange": d.get("Exchange"), "currency": d.get("Currency"), "country": d.get("Country"),
@@ -454,6 +479,36 @@ def due_symbols(job, symbols, today=None):
 
 
 # ---------------------------------------------------------------------------
+NO_FUNDAMENTALS_JOBS = ("overview", "prices", "quote")  # what still makes sense without company data
+
+
+def run_symbol(sym, jobs, due, no_data):
+    """Run the due jobs for one ticker. One without company data only gets the overview
+    recheck, prices and quotes."""
+    skip_statements = no_data
+    for job in jobs:
+        if sym not in due[job]:
+            continue
+        if skip_statements and job not in NO_FUNDAMENTALS_JOBS:
+            continue
+        try:
+            with_retries(f"{sym} {job}", lambda: JOBS[job](sym))
+            print(f"ok   {sym:<8} {job}")
+        except NoFundamentals as e:
+            skip_statements = True
+            print(f"skip {sym:<8} {e}")
+        except SkipSymbol as e:
+            print(f"skip {sym:<8} {e}")
+            break
+        except AVLimitError:
+            raise
+        except Exception as e:
+            ERRORS[f"{sym}:{job}"] = str(e)
+            print(f"FAIL {sym:<8} {job}: {e}")
+            if job == "overview":
+                break  # not worth more calls on a ticker Alpha Vantage cannot even describe right now
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("symbols", nargs="*", help="only these tickers (default: all active); they still fetch only what is due, unless --force")
@@ -474,9 +529,10 @@ def main():
         sb.table("ticker").upsert([{"symbol": s} for s in symbols],
                                   on_conflict="symbol", ignore_duplicates=True).execute()
     else:
-        rows = fetch_all("ticker", "symbol", ["symbol"],
-                         lambda q: q.eq("is_active", True).neq("av_status", "no_data"))
+        rows = fetch_all("ticker", "symbol", ["symbol"], lambda q: q.eq("is_active", True))
         symbols = [r["symbol"] for r in rows]
+    no_data = {r["symbol"] for r in fetch_all("ticker", "symbol", ["symbol"],
+                                              lambda q: q.eq("av_status", "no_data"))}
     force = args.force  # named tickers only narrow the scope; new ones are never fetched, so they get everything anyway
 
     run_name = (["calendar"] if run_calendar else []) + (["fx"] if run_fx else []) + jobs
@@ -494,26 +550,14 @@ def main():
         if run_fx:
             ingest_fx()
 
-        due = {j: (set(symbols) if force else due_symbols(j, symbols)) for j in jobs}
+        due = {}
+        for j in jobs:
+            pool = symbols if j in NO_FUNDAMENTALS_JOBS else [s for s in symbols if s not in no_data]
+            due[j] = set(pool) if force else due_symbols(j, pool)
         print("due:", ", ".join(f"{j} {len(due[j])}" for j in jobs) or "nothing")
 
         for sym in (symbols if jobs else []):
-            for job in jobs:
-                if sym not in due[job]:
-                    continue
-                try:
-                    with_retries(f"{sym} {job}", lambda: JOBS[job](sym))
-                    print(f"ok   {sym:<8} {job}")
-                except SkipSymbol as e:
-                    print(f"skip {sym:<8} {e}")
-                    break
-                except AVLimitError:
-                    raise
-                except Exception as e:
-                    ERRORS[f"{sym}:{job}"] = str(e)
-                    print(f"FAIL {sym:<8} {job}: {e}")
-                    if job == "overview":
-                        break  # not worth more calls on a ticker Alpha Vantage cannot even describe right now
+            run_symbol(sym, jobs, due, sym in no_data)
     except AVLimitError as e:
         status = "rate_limited"
         ERRORS["_limit"] = str(e)
