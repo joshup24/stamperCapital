@@ -18,8 +18,8 @@ logs/ingest_errors.log.
 Usage:
   python ingest/av_ingest.py                    # everything that is due, all active tickers
   python ingest/av_ingest.py --only quote       # chosen jobs: calendar,fx,overview,income,balance,cashflow,earnings,prices,quote
-  python ingest/av_ingest.py AAPL MSFT          # these tickers, ignoring what is up to date (added if new)
-  python ingest/av_ingest.py --force            # all tickers, ignoring what is up to date
+  python ingest/av_ingest.py AAPL MSFT          # only these tickers (added if new: a new ticker gets everything)
+  python ingest/av_ingest.py --force            # ignore what is up to date (add tickers to limit it to those)
 """
 import argparse
 import csv
@@ -456,7 +456,7 @@ def due_symbols(job, symbols, today=None):
 # ---------------------------------------------------------------------------
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("symbols", nargs="*", help="tickers to load, ignoring what is up to date (default: all active)")
+    ap.add_argument("symbols", nargs="*", help="only these tickers (default: all active); they still fetch only what is due, unless --force")
     ap.add_argument("--only", help="comma list of jobs: calendar,fx," + ",".join(JOBS))
     ap.add_argument("--force", action="store_true", help="ignore what is already up to date")
     args = ap.parse_args()
@@ -477,7 +477,7 @@ def main():
         rows = fetch_all("ticker", "symbol", ["symbol"],
                          lambda q: q.eq("is_active", True).neq("av_status", "no_data"))
         symbols = [r["symbol"] for r in rows]
-    force = args.force or bool(args.symbols)
+    force = args.force  # named tickers only narrow the scope; new ones are never fetched, so they get everything anyway
 
     run_name = (["calendar"] if run_calendar else []) + (["fx"] if run_fx else []) + jobs
     run = sb.table("ingest_run").insert({"jobs": run_name, "symbols": len(symbols)}).execute().data[0]

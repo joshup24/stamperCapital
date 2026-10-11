@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       symbols:
-        description: "Space-separated tickers (blank = all active)"
+        description: "Only these tickers, space-separated (blank = all active). A new ticker gets everything; others only what is due."
         required: false
         default: ""
       only:
@@ -12,7 +12,7 @@ on:
         required: false
         default: ""
       force:
-        description: "Refetch everything for the chosen tickers, even if up to date"
+        description: "Refetch everything, even what is up to date (for the tickers above, or for all if blank)"
         type: boolean
         default: false
   # Tuesday to Saturday at 3am Pacific Standard Time: the morning after each market day
