@@ -47,6 +47,12 @@ BURST_HINTS = ("call volume", "per minute", "spreading out")
 BURST_WAIT_SECONDS = 15
 BURST_RETRIES = 6
 
+# Alpha Vantage answers "Invalid API call. Please retry..." both for a bad symbol and for
+# passing trouble on its side. The trouble comes in short bursts (about 10% of statement
+# calls in one big run, several in a row for the same ticker), so back off and try again
+# before giving up. Seconds to wait before each retry:
+INVALID_CALL_BACKOFF = (10, 30, 60)
+
 REFRESH_DAYS = {"overview": 30, "prices": 25}
 STATEMENT_SAFETY_DAYS = 120   # re-pull statements this often even if no report was spotted
 REPORT_LAG_DAYS = 3           # Alpha Vantage needs a few days to publish after a report
@@ -136,7 +142,8 @@ def touch(symbol, dataset, latest=None):
 def _get(function, params):
     """One paced call. Returns parsed JSON, or the raw text for CSV endpoints."""
     global _last_call, api_calls
-    for attempt in range(BURST_RETRIES + 1):
+    bursts = invalids = 0
+    while True:  # every `continue` below spends a retry, so this always ends
         wait = 60 / CALLS_PER_MINUTE - (time.monotonic() - _last_call)
         if wait > 0:
             time.sleep(wait)
@@ -149,17 +156,27 @@ def _get(function, params):
         if not r.text.lstrip().startswith("{"):
             return r.text  # CSV
         data = r.json()
+
         msg = data.get("Note") or data.get("Information")
         if msg:
-            if attempt < BURST_RETRIES and any(h in msg.lower() for h in BURST_HINTS):
-                print(f"burst limit, waiting {BURST_WAIT_SECONDS}s ({attempt + 1}/{BURST_RETRIES})")
+            if bursts < BURST_RETRIES and any(h in msg.lower() for h in BURST_HINTS):
+                bursts += 1
+                print(f"burst limit, waiting {BURST_WAIT_SECONDS}s ({bursts}/{BURST_RETRIES})")
                 time.sleep(BURST_WAIT_SECONDS)
                 continue
             raise AVLimitError(msg)
-        if "Error Message" in data:
-            raise ValueError(data["Error Message"])
+
+        err = data.get("Error Message")
+        if err:
+            if invalids < len(INVALID_CALL_BACKOFF) and "invalid api call" in err.lower():
+                pause = INVALID_CALL_BACKOFF[invalids]
+                invalids += 1
+                print(f"'Invalid API call' for {function} {params.get('symbol', '')}, "
+                      f"retrying in {pause}s ({invalids}/{len(INVALID_CALL_BACKOFF)})")
+                time.sleep(pause)
+                continue
+            raise ValueError(err)
         return data
-    raise AVLimitError("burst limit retries exhausted")
 
 
 def av(function, symbol, **params):
@@ -431,6 +448,8 @@ def main():
                 except Exception as e:
                     ERRORS[f"{sym}:{job}"] = str(e)
                     print(f"FAIL {sym:<8} {job}: {e}")
+                    if job == "overview":
+                        break  # not worth more calls on a ticker Alpha Vantage cannot even describe right now
     except AVLimitError as e:
         status = "rate_limited"
         ERRORS["_limit"] = str(e)
