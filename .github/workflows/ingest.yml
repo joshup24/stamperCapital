@@ -15,12 +15,13 @@ on:
         description: "Refetch everything for the chosen tickers, even if up to date"
         type: boolean
         default: false
-  # Weekdays at 3am Pacific Standard Time, long after the close, so each morning is ready
-  # with the previous day's data. GitHub schedules are in UTC and do not follow daylight
-  # saving: 11:00 UTC is 3am PST in winter and 4am PDT in summer. Each run only fetches
-  # what is due: quotes every run, statements only after a company has reported.
+  # Tuesday to Saturday at 3am Pacific Standard Time: the morning after each market day
+  # (Mon-Fri), long after the close, so Friday's results are ready Saturday and nothing
+  # waits for Monday. GitHub schedules are in UTC and do not follow daylight saving:
+  # 11:00 UTC is 3am PST in winter and 4am PDT in summer. Each run only fetches what is
+  # due: quotes every run, statements only after a company has reported.
   schedule:
-    - cron: "0 11 * * 1-5"
+    - cron: "0 11 * * 2-6"
 
 # Never let two runs overlap (a manual run during a scheduled one): they share one
 # Alpha Vantage rate limit. The second waits for the first.
