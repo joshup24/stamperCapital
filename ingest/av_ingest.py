@@ -11,6 +11,9 @@ A run fetches only what is due:
              never fetched, or the last fetch is over 120 days old
 Tickers Alpha Vantage has no data for are marked 'no_data' and skipped from then on.
 A run that hits the daily quota stops cleanly and the next run picks up where it left off.
+Any other failure is retried after 10s, 30s and 60s, then recorded and skipped (the next run
+tries again, since nothing was marked done). Every retry and failure is also appended to
+logs/ingest_errors.log.
 
 Usage:
   python ingest/av_ingest.py                    # everything that is due, all active tickers
@@ -24,8 +27,10 @@ import io
 import os
 import sys
 import time
+from collections import deque
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
@@ -41,17 +46,24 @@ CALLS_PER_MINUTE = float(os.getenv("AV_CALLS_PER_MINUTE", "5"))
 BATCH = 500   # rows per upsert request
 PAGE = 1000   # rows per read request (PostgREST's default cap)
 
-# The per-minute burst message looks like "...contact premium@alphavantage.co if you are
-# targeting a higher API call volume". Waiting a few seconds clears it.
+# Rate limit: never more than CALLS_PER_MINUTE calls in any rolling 60 seconds. Calls go out
+# as fast as they come back until that count is used up, then the script waits for the
+# oldest call to turn a minute old. If Alpha Vantage pushes back anyway (the message looks
+# like "...contact premium@alphavantage.co if you are targeting a higher API call volume"),
+# wait out the clock minute and start the count again.
 BURST_HINTS = ("call volume", "per minute", "spreading out")
-BURST_WAIT_SECONDS = 15
 BURST_RETRIES = 6
 
-# Alpha Vantage answers "Invalid API call. Please retry..." both for a bad symbol and for
-# passing trouble on its side. The trouble comes in short bursts (about 10% of statement
-# calls in one big run, several in a row for the same ticker), so back off and try again
-# before giving up. Seconds to wait before each retry:
-INVALID_CALL_BACKOFF = (10, 30, 60)
+# Any other failure (network error, timeout, bad reply, "Invalid API call", a failed database
+# write...) is retried after each of these waits, in seconds, then recorded and skipped.
+# Alpha Vantage's "Invalid API call. Please retry..." arrives in short bursts on its side
+# (about 7% of statement calls in one big run), which is what this is for.
+# Never retried: a daily quota / key / plan message, where waiting cannot help, and a
+# normal skip such as an ETF with no company data.
+RETRY_WAITS = (10, 30, 60)
+
+# Every retry and failure is also appended here; the workflow uploads logs/ with each run.
+LOG_PATH = Path(os.getenv("INGEST_LOG", "logs/ingest_errors.log"))
 
 REFRESH_DAYS = {"overview": 30, "prices": 25}
 STATEMENT_SAFETY_DAYS = 120   # re-pull statements this often even if no report was spotted
@@ -68,9 +80,63 @@ class SkipSymbol(Exception):
     """Nothing usable for this symbol (ETF, foreign listing...). Skip its remaining jobs."""
 
 
-_last_call = 0.0
+_recent_calls = deque()  # monotonic times of the calls made in the last minute
 api_calls = 0
 ERRORS = {}
+
+
+def log_event(kind, label, message):
+    """Append one line to the error log, creating the folder if needed."""
+    try:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(f"{stamp} | {kind:<7} | {label} | {' '.join(str(message).split())}\n")
+    except OSError:
+        pass  # a full disk must not take the run down
+
+
+def with_retries(label, fn):
+    """Run fn(). On ANY failure wait RETRY_WAITS in turn and try again, then raise the last
+    error. A daily-quota / key / plan message (AVLimitError) and a normal skip (SkipSymbol)
+    pass straight through."""
+    for attempt in range(len(RETRY_WAITS) + 1):
+        try:
+            return fn()
+        except (AVLimitError, SkipSymbol):
+            raise
+        except Exception as e:
+            if attempt == len(RETRY_WAITS):
+                log_event("FAILED", label, e)
+                raise
+            pause = RETRY_WAITS[attempt]
+            log_event("RETRY", f"{label} (retry {attempt + 1}/{len(RETRY_WAITS)} in {pause}s)", e)
+            print(f"retry {attempt + 1}/{len(RETRY_WAITS)} in {pause}s: {label}: {e}")
+            time.sleep(pause)
+
+
+def _wait_for_slot():
+    """Allow at most CALLS_PER_MINUTE calls in any rolling 60 seconds: go freely up to the
+    limit, then wait until the oldest of those calls is a minute old."""
+    limit = max(1, int(CALLS_PER_MINUTE))
+    while True:
+        t = time.monotonic()
+        while _recent_calls and t - _recent_calls[0] >= 60:
+            _recent_calls.popleft()
+        if len(_recent_calls) < limit:
+            _recent_calls.append(t)
+            return
+        pause = 60 - (t - _recent_calls[0]) + 0.25
+        print(f"{limit} calls in the last minute, waiting {pause:.0f}s")
+        time.sleep(pause)
+
+
+def _wait_for_next_minute():
+    """Alpha Vantage pushed back: wait out the clock minute, then start the count afresh."""
+    pause = 60 - (time.time() % 60) + 1
+    print(f"Alpha Vantage pushed back, waiting {pause:.0f}s for the next minute")
+    time.sleep(pause)
+    _recent_calls.clear()
 
 
 def now():
@@ -141,14 +207,10 @@ def touch(symbol, dataset, latest=None):
 # ---------------------------------------------------------------------------
 def _get(function, params):
     """One paced call. Returns parsed JSON, or the raw text for CSV endpoints."""
-    global _last_call, api_calls
-    bursts = invalids = 0
-    while True:  # every `continue` below spends a retry, so this always ends
-        wait = 60 / CALLS_PER_MINUTE - (time.monotonic() - _last_call)
-        if wait > 0:
-            time.sleep(wait)
-        _last_call = time.monotonic()
-
+    global api_calls
+    bursts = 0
+    while True:  # every `continue` below spends a burst retry, so this always ends
+        _wait_for_slot()
         r = requests.get(AV_URL, params={"function": function, **params, "apikey": AV_KEY}, timeout=60)
         api_calls += 1
         r.raise_for_status()
@@ -159,23 +221,16 @@ def _get(function, params):
 
         msg = data.get("Note") or data.get("Information")
         if msg:
-            if bursts < BURST_RETRIES and any(h in msg.lower() for h in BURST_HINTS):
+            low = msg.lower()
+            daily = "per day" in low or "daily" in low  # quota gone for the day: waiting cannot help
+            if not daily and bursts < BURST_RETRIES and any(h in low for h in BURST_HINTS):
                 bursts += 1
-                print(f"burst limit, waiting {BURST_WAIT_SECONDS}s ({bursts}/{BURST_RETRIES})")
-                time.sleep(BURST_WAIT_SECONDS)
+                _wait_for_next_minute()
                 continue
             raise AVLimitError(msg)
 
-        err = data.get("Error Message")
-        if err:
-            if invalids < len(INVALID_CALL_BACKOFF) and "invalid api call" in err.lower():
-                pause = INVALID_CALL_BACKOFF[invalids]
-                invalids += 1
-                print(f"'Invalid API call' for {function} {params.get('symbol', '')}, "
-                      f"retrying in {pause}s ({invalids}/{len(INVALID_CALL_BACKOFF)})")
-                time.sleep(pause)
-                continue
-            raise ValueError(err)
+        if "Error Message" in data:
+            raise ValueError(data["Error Message"])  # with_retries decides whether to try again
         return data
 
 
@@ -339,7 +394,7 @@ def ingest_fx():
     active = fetch_all("currency", "currency", ["currency"], lambda q: q.eq("is_active", True))
     ts = now()
     for ccy in sorted({r["currency"] for r in active} - {"USD"}):
-        try:
+        def load(ccy=ccy):
             d = av("FX_MONTHLY", f"{ccy}/USD", from_symbol=ccy, to_symbol="USD")
             rows = {}
             for dt, v in d.get("Time Series FX (Monthly)", {}).items():
@@ -347,7 +402,10 @@ def ingest_fx():
                 if rate:
                     rows[month_of(dt)] = {"currency": ccy, "month": month_of(dt), "rate": rate, "fetched_at": ts}
             upsert("fx_rate_monthly", list(rows.values()), "currency,month")
-            print(f"ok   {ccy}/USD  fx  {len(rows)} months")
+            return len(rows)
+
+        try:
+            print(f"ok   {ccy}/USD  fx  {with_retries(f'{ccy}/USD fx', load)} months")
         except AVLimitError:
             raise
         except Exception as e:
@@ -426,7 +484,13 @@ def main():
     status = "success"
     try:
         if run_calendar:
-            ingest_calendar()
+            try:
+                with_retries("calendar", ingest_calendar)
+            except AVLimitError:
+                raise
+            except Exception as e:  # without it, statements fall back to the periodic safety refresh
+                ERRORS["calendar"] = str(e)
+                print(f"FAIL calendar: {e}")
         if run_fx:
             ingest_fx()
 
@@ -438,7 +502,7 @@ def main():
                 if sym not in due[job]:
                     continue
                 try:
-                    JOBS[job](sym)
+                    with_retries(f"{sym} {job}", lambda: JOBS[job](sym))
                     print(f"ok   {sym:<8} {job}")
                 except SkipSymbol as e:
                     print(f"skip {sym:<8} {e}")
@@ -453,10 +517,12 @@ def main():
     except AVLimitError as e:
         status = "rate_limited"
         ERRORS["_limit"] = str(e)
+        log_event("STOPPED", "run", e)
         print(f"Stopped by Alpha Vantage limit: {e}")
     except Exception as e:
         status = "failed"
         ERRORS["_fatal"] = str(e)
+        log_event("FATAL", "run", e)
         raise
     finally:
         if ERRORS and status == "success":

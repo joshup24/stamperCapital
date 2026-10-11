@@ -51,5 +51,13 @@ python ingest/av_ingest.py AAPL MSFT      # these tickers, refetch everything
 python ingest/av_ingest.py --only quote
 ```
 
+**Rate limit:** up to 70 calls go out as fast as they come back in any rolling minute (setting
+`AV_CALLS_PER_MINUTE`; the plan allows 75), then it waits for the minute to roll over.
+
+**Failures:** any failure is retried after 10s, 30s and 60s, then recorded and skipped; the next
+run tries again. Only a daily-quota / key / plan message stops the run at once. Each retry and
+failure is a line in `logs/ingest_errors.log`, which a GitHub run keeps as a downloadable
+artifact (run page, Artifacts at the bottom), and failures are also in `ingest_run.errors`.
+
 Needs `ALPHAVANTAGE_API_KEY`, `SUPABASE_URL` and `SUPABASE_SECRET_KEY` (see `.env.example`).
 Keys live only in a local `.env` (git-ignored) and in GitHub Actions secrets, never in files.
