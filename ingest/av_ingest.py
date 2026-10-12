@@ -90,6 +90,34 @@ class NoFundamentals(SkipSymbol):
 _recent_calls = deque()  # monotonic times of the calls made in the last minute
 api_calls = 0
 ERRORS = {}
+DONE = {}       # job -> tickers it completed for in this run, for the emailed report
+RUN_NOTES = {}  # other facts about the run for the report
+
+
+class Tee:
+    """Print to the console as usual and keep a complete copy in a file (logs/ingest_run.log)."""
+
+    def __init__(self, stream, path):
+        self.stream = stream
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self.file = path.open("a", encoding="utf-8", errors="replace")
+        except OSError:
+            self.file = None
+
+    def write(self, text):
+        self.stream.write(text)
+        if self.file:
+            self.file.write(text)
+        return len(text)
+
+    def flush(self):
+        self.stream.flush()
+        if self.file:
+            self.file.flush()
+
+    def isatty(self):
+        return False
 
 
 def log_event(kind, label, message):
@@ -114,6 +142,10 @@ def write_summary(status, started, tickers, jobs):
         f"tickers: {tickers}",
         f"jobs: {', '.join(jobs)}",
         f"errors: {len(ERRORS)}",
+        "done: " + (", ".join(f"{job} {len(syms)}" for job, syms in DONE.items()) or "nothing was due"),
+        "statements_refreshed: " + (", ".join(sorted({s for j in ("income", "balance", "cashflow", "earnings")
+                                                       for s in DONE.get(j, [])})) or "none"),
+        f"no_data_tickers: {RUN_NOTES.get('no_data_tickers', 0)}",
     ] + [f"error: {key}: {' '.join(str(msg).split())}" for key, msg in ERRORS.items()]
     try:
         LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -512,6 +544,7 @@ def run_symbol(sym, jobs, due, no_data):
             continue
         try:
             with_retries(f"{sym} {job}", lambda: JOBS[job](sym))
+            DONE.setdefault(job, []).append(sym)
             print(f"ok   {sym:<8} {job}")
         except NoFundamentals as e:
             skip_statements = True
@@ -534,6 +567,7 @@ def main():
     ap.add_argument("--only", help="comma list of jobs: calendar,fx," + ",".join(JOBS))
     ap.add_argument("--force", action="store_true", help="ignore what is already up to date")
     args = ap.parse_args()
+    sys.stdout = Tee(sys.stdout, LOG_PATH.parent / "ingest_run.log")  # a complete copy of the run, for the report
 
     jobs = args.only.split(",") if args.only else ["calendar", "fx"] + list(JOBS)
     unknown = [j for j in jobs if j not in ("calendar", "fx") and j not in JOBS]
@@ -552,6 +586,7 @@ def main():
         symbols = [r["symbol"] for r in rows]
     no_data = {r["symbol"] for r in fetch_all("ticker", "symbol", ["symbol"],
                                               lambda q: q.eq("av_status", "no_data"))}
+    RUN_NOTES["no_data_tickers"] = len(no_data)
     force = args.force  # named tickers only narrow the scope; new ones are never fetched, so they get everything anyway
 
     run_name = (["calendar"] if run_calendar else []) + (["fx"] if run_fx else []) + jobs

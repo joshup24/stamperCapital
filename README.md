@@ -61,7 +61,8 @@ failure is a line in `logs/ingest_errors.log`, which a GitHub run keeps as a dow
 artifact (run page, Artifacts at the bottom), and failures are also in `ingest_run.errors`.
 
 **Email report (optional).** After every run `tools/send_report.py` emails a summary (status, calls,
-minutes, errors in the subject line) plus the retry and failure log. It does nothing until these GitHub
+minutes, errors in the subject line), what was updated (including which companies got new statements),
+the retry and failure lines, and the full run log attached. It does nothing until these GitHub
 Actions secrets exist: `SMTP_USER`, `SMTP_PASSWORD`, `REPORT_TO`; optional `SMTP_HOST` (default
 smtp.gmail.com), `REPORT_FROM`. Resend (send-only API key): host `smtp.resend.com`, user `resend`, password
 the API key, from `onboarding@resend.dev`, to the address the Resend account was created with.

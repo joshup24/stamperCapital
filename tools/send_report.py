@@ -1,7 +1,8 @@
 """Email the result of an ingest run: a summary in the subject, the details and the retry
 and failure log in the body, the log attached.
 
-Reads logs/ingest_summary.txt and logs/ingest_errors.log (written by ingest/av_ingest.py) and
+Reads logs/ingest_summary.txt, logs/ingest_run.log (everything the run printed) and
+logs/ingest_errors.log (retries and failures only) (written by ingest/av_ingest.py) and
 sends with Python's standard library only. Settings are environment variables (GitHub secrets):
   SMTP_USER, SMTP_PASSWORD, REPORT_TO   required; without them this prints a note and does nothing
   SMTP_HOST   default smtp.gmail.com     SMTP_PORT   default 465 (587 uses STARTTLS)
@@ -38,7 +39,7 @@ def parse_summary(text):
     return fields
 
 
-def build_message(summary_text, log_text, sender, to, run_url="", event=""):
+def build_message(summary_text, log_text, sender, to, run_url="", event="", run_log_text=""):
     f = parse_summary(summary_text)
     how = f" ({event})" if event else ""
     if "status" in f:
@@ -53,6 +54,14 @@ def build_message(summary_text, log_text, sender, to, run_url="", event=""):
     if run_url:
         body += [f"Run: {run_url}", ""]
     body += ["SUMMARY"] + [f"  {k}: {f[k]}" for k in ("status", "started", "minutes", "api_calls", "tickers", "jobs", "errors") if k in f]
+    names = [n for n in f.get("statements_refreshed", "").split(", ") if n and n != "none"]
+    more = f" ... and {len(names) - 40} more" if len(names) > 40 else ""
+    body += ["", "WHAT WAS UPDATED"]
+    if "done" in f:
+        body.append(f"  jobs completed (tickers each): {f['done']}")
+    body.append(f"  new financial statements for {len(names)} companies: {', '.join(names[:40]) or 'none'}{more}")
+    if "no_data_tickers" in f:
+        body.append(f"  tickers with no company data (prices and quotes only): {f['no_data_tickers']}")
     body += ["", "ERRORS THAT SURVIVED ALL RETRIES (these were skipped and are tried again next run)"]
     body += [f"  {e}" for e in f["error_list"]] or ["  none"]
     body += ["", f"RETRIES AND FAILURES ({len(log_lines)} lines)"]
@@ -63,8 +72,9 @@ def build_message(summary_text, log_text, sender, to, run_url="", event=""):
     msg = EmailMessage()
     msg["Subject"], msg["From"], msg["To"] = subject, sender, to
     msg.set_content("\n".join(body) + "\n")
-    if log_text.strip():
-        msg.add_attachment(log_text.encode("utf-8"), maintype="text", subtype="plain", filename="ingest_errors.log")
+    for text, name in ((run_log_text, "ingest_run.log"), (log_text, "ingest_errors.log")):
+        if text.strip():
+            msg.add_attachment(text.encode("utf-8"), maintype="text", subtype="plain", filename=name)
     return msg
 
 
@@ -89,7 +99,8 @@ def main():
     port = int(os.getenv("SMTP_PORT") or 465)
     msg = build_message(read(LOG_DIR / "ingest_summary.txt"), read(LOG_DIR / "ingest_errors.log"),
                         os.getenv("REPORT_FROM") or user, to,
-                        os.getenv("RUN_URL", ""), os.getenv("RUN_EVENT", ""))
+                        os.getenv("RUN_URL", ""), os.getenv("RUN_EVENT", ""),
+                        read(LOG_DIR / "ingest_run.log"))
     try:
         send(msg, host, port, user, password)
     except Exception as e:  # never print the password; the message alone is enough to diagnose
