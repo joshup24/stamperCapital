@@ -46,9 +46,12 @@ four quarters. Missing data stays missing (the old model turned "None" into 0 an
   inline correction of a bad number with a reason; admin screens for categories and multiples.
 
 ## Open items (data side, handled in the ingest thread)
-- Quote timing: `quote_probe` experiment measures when Alpha Vantage's quote is final after the close. His plan has
-  75 calls/min, no daily limit, and 15-minute delayed US data (`entitlement=delayed`); if that is final by ~4:30pm ET,
-  add a late-afternoon quote refresh and use it.
+- Quote timing: the `quote_probe` experiment (a few weekday checks around the close) measures when Alpha Vantage's normal
+  end-of-day quote shows the day's final price, to time the nightly run; drop the table and workflow afterwards. His plan
+  has 75 calls/min and no daily limit. Delayed and realtime data are NOT active on his key (Alpha Vantage says to
+  activate via an email) and he decided he only needs daily data, so do not pursue them.
+- Licensing: Alpha Vantage's entitlement message says the data is for "personal non-professional use". Check their terms
+  (or ask support) before showing market data to friends and family through the app.
 - FX history: Alpha Vantage FX_MONTHLY is short for CAD, CHF, MXN, ILS (16-39 months); the free ECB-based
   Frankfurter API (api.frankfurter.dev) has daily history from 1999 and is the planned fallback. NVO (DKK) has no rate yet.
 - Tickers with no Alpha Vantage company data (`ticker.av_status = 'no_data'`: ETFs, OTC ADRs like NSRGY) still get quotes

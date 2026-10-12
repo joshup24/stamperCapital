@@ -3,8 +3,8 @@ Alpha Vantage catches up with the close. See supabase/migrations/*_quote_probe.s
 
   python ingest/quote_probe.py [SYMBOL ...]
 
-The first symbol is also probed with the 'delayed' and 'realtime' entitlements, which
-shows which of those your plan includes (the response says if it does not).
+Only the normal end-of-day quote is probed. (The 'delayed' and 'realtime' entitlements were
+tried once and are not active on this key; Joshua only needs daily data.)
 """
 import os
 import sys
@@ -54,7 +54,7 @@ def fetch(symbol, entitlement=None):
 
 def main():
     sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SECRET_KEY"])
-    calls = [(s, "default", None) for s in SYMBOLS] + [(SYMBOLS[0], "delayed", "delayed"), (SYMBOLS[0], "realtime", "realtime")]
+    calls = [(s, "default", None) for s in SYMBOLS]
     rows = []
     for symbol, variant, entitlement in calls:
         probed_at = datetime.now(timezone.utc).isoformat()

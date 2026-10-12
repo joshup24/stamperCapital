@@ -1,7 +1,7 @@
 name: Quote timing probe (temporary)
 
 # Measures when Alpha Vantage's quote catches up with the close, so the nightly refresh
-# can be timed right. Ten checks per market day, 7 API calls each. Delete this workflow
+# can be timed right. Ten checks per market day, 5 API calls each. Delete this workflow
 # (and drop quote_probe) once the answer is in.
 #
 # Times are UTC and assume daylight saving (US market closes 4pm ET = 20:00 UTC); after
