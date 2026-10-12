@@ -1,0 +1,10 @@
+/* Brand fonts. Drop font files into brand/assets/fonts/ and declare them here,
+   then point --font-body / --font-heading in tokens.css at the family name.
+
+@font-face {
+  font-family: 'BrandSans';
+  src: url('./assets/fonts/BrandSans-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
+*/
