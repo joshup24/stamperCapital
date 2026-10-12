@@ -60,7 +60,8 @@ def main():
         probed_at = datetime.now(timezone.utc).isoformat()
         row = probe_row(symbol, variant, fetch(symbol, entitlement), probed_at)
         rows.append(row)
-        print(f"{probed_at[11:19]}Z {symbol:<5} {variant:<9} day={row['latest_trading_day']} price={row['price']} volume={row['volume']}")
+        why = "" if row["price"] else f"  <- no quote; Alpha Vantage said: {str(row['raw'])[:300]}"
+        print(f"{probed_at[11:19]}Z {symbol:<5} {variant:<9} day={row['latest_trading_day']} price={row['price']} volume={row['volume']}{why}")
         time.sleep(1)  # well inside the plan's per-minute limit
     sb.table("quote_probe").insert(rows).execute()
     print(f"recorded {len(rows)} rows")
