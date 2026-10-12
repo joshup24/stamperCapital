@@ -55,6 +55,21 @@ jobs:
           if [ -n "$ONLY" ]; then ARGS+=(--only "$ONLY"); fi
           if [ "$FORCE" = "true" ]; then ARGS+=(--force); fi
           python ingest/av_ingest.py "${ARGS[@]}" $SYMBOLS
+      # Optional: email the summary and the log after every run. Does nothing until the
+      # SMTP_USER, SMTP_PASSWORD and REPORT_TO secrets exist (see README). A problem with
+      # the email never turns the run red.
+      - name: Email the report
+        if: always()
+        continue-on-error: true
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          REPORT_TO: ${{ secrets.REPORT_TO }}
+          REPORT_FROM: ${{ secrets.REPORT_FROM }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_EVENT: ${{ github.event_name }}
+        run: python tools/send_report.py
       # Every retry and failure of the run, one line each. Download it from the run's page
       # (Summary, Artifacts at the bottom). Kept 30 days.
       - name: Save the error log

@@ -60,5 +60,12 @@ run tries again. Only a daily-quota / key / plan message stops the run at once. 
 failure is a line in `logs/ingest_errors.log`, which a GitHub run keeps as a downloadable
 artifact (run page, Artifacts at the bottom), and failures are also in `ingest_run.errors`.
 
+**Email report (optional).** After every run `tools/send_report.py` emails a summary (status, calls,
+minutes, errors in the subject line) plus the retry and failure log. It does nothing until these GitHub
+Actions secrets exist: `SMTP_USER`, `SMTP_PASSWORD`, `REPORT_TO`; optional `SMTP_HOST` (default
+smtp.gmail.com), `REPORT_FROM`. Resend (send-only API key): host `smtp.resend.com`, user `resend`, password
+the API key, from `onboarding@resend.dev`, to the address the Resend account was created with.
+Gmail: user is the address, password a 16-character app password (use a dedicated account).
+
 Needs `ALPHAVANTAGE_API_KEY`, `SUPABASE_URL` and `SUPABASE_SECRET_KEY` (see `.env.example`).
 Keys live only in a local `.env` (git-ignored) and in GitHub Actions secrets, never in files.

@@ -103,6 +103,25 @@ def log_event(kind, label, message):
         pass  # a full disk must not take the run down
 
 
+def write_summary(status, started, tickers, jobs):
+    """logs/ingest_summary.txt: how the run went, for the emailed report (tools/send_report.py)."""
+    minutes = (datetime.now(timezone.utc) - started).total_seconds() / 60
+    lines = [
+        f"status: {status}",
+        f"started: {started.isoformat(timespec='seconds')}",
+        f"minutes: {minutes:.1f}",
+        f"api_calls: {api_calls}",
+        f"tickers: {tickers}",
+        f"jobs: {', '.join(jobs)}",
+        f"errors: {len(ERRORS)}",
+    ] + [f"error: {key}: {' '.join(str(msg).split())}" for key, msg in ERRORS.items()]
+    try:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        (LOG_PATH.parent / "ingest_summary.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
 def with_retries(label, fn):
     """Run fn(). On ANY failure wait RETRY_WAITS in turn and try again, then raise the last
     error. A daily-quota / key / plan message (AVLimitError) and a normal skip (SkipSymbol)
@@ -538,6 +557,7 @@ def main():
     run_name = (["calendar"] if run_calendar else []) + (["fx"] if run_fx else []) + jobs
     run = sb.table("ingest_run").insert({"jobs": run_name, "symbols": len(symbols)}).execute().data[0]
     status = "success"
+    started = datetime.now(timezone.utc)
     try:
         if run_calendar:
             try:
@@ -574,6 +594,7 @@ def main():
         sb.table("ingest_run").update({
             "finished_at": now(), "status": status, "api_calls": api_calls, "errors": ERRORS or None,
         }).eq("id", run["id"]).execute()
+        write_summary(status, started, len(symbols), run_name)
         print(f"Run {run['id']}: {status}, {api_calls} API calls, {len(ERRORS)} errors")
 
     sys.exit(0 if status == "success" else 1)
