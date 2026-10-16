@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 .venv/
 logs/
+
+# personal data loads (holdings, watchlists): never commit
+supabase/private/

@@ -1,10 +1,7 @@
-/* Brand fonts. Drop font files into brand/assets/fonts/ and declare them here,
-   then point --font-body / --font-heading in tokens.css at the family name.
-
-@font-face {
-  font-family: 'BrandSans';
-  src: url('./assets/fonts/BrandSans-Regular.woff2') format('woff2');
-  font-weight: 400;
-  font-display: swap;
-}
-*/
+/* Brand fonts (guidelines p.24), self-hosted from npm packages so nothing loads from a third party.
+   Both are SIL Open Font License; the license files ship in node_modules/@fontsource*.
+   To change a font: install another @fontsource package, import it here, and point
+   --font-body / --font-heading in tokens.css at its family name. */
+@import '@fontsource-variable/inter/wght.css';
+@import '@fontsource/cormorant-garamond/600.css';
+@import '@fontsource/cormorant-garamond/700.css';

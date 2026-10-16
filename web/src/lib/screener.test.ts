@@ -100,6 +100,15 @@ describe('passes and filters', () => {
     expect(applyFilters(rows, { ...NO_FILTERS, search: 'zed' }, groups).map((r) => r.symbol)).toEqual(['ZZZ'])
   })
 
+  it('filters by category, using the user category over the shared one', () => {
+    const s = { ...empty, userCategory: { MO: 'SIN' } }
+    const tagged = buildRow({ ...base, category: 'OLD' }, s, 'fy')
+    const other = buildRow({ ...base, symbol: 'OTH', category: 'DEFENSE' }, s, 'fy')
+    expect(tagged.category).toBe('SIN')
+    const out = applyFilters([tagged, other], { ...NO_FILTERS, category: 'SIN' }, {})
+    expect(out.map((r) => r.symbol)).toEqual(['MO'])
+  })
+
   it('minimum gain excludes rows with no gain figure', () => {
     const out = applyFilters(rows, { ...NO_FILTERS, minGain: 0.2 }, {})
     expect(out.map((r) => r.symbol)).toEqual(['MO'])

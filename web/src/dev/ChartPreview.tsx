@@ -5,6 +5,9 @@ import { buildYears, type StatementRow } from '../lib/financials'
 import type { PriceBar } from '../lib/prices'
 import Tabs from '../components/Tabs'
 import Gauge from '../components/Gauge'
+import Logo from '../components/Logo'
+import ThemeToggle from '../components/ThemeToggle'
+import AppHeader from '../components/AppHeader'
 import ChartsTab, { CHART_TABS, type ChartKey } from '../features/stock/ChartsTab'
 import { percent } from '../lib/format'
 
@@ -55,12 +58,19 @@ function fakeBars(): PriceBar[] {
 export default function ChartPreview() {
   const [chart, setChart] = useState<ChartKey>('balance')
   const [period, setPeriod] = useState<'annual' | 'quarterly'>('annual')
-  const years = useMemo(fakeYears, [])
-  const bars = useMemo(fakeBars, [])
+  const years = useMemo(() => fakeYears(), [])
+  const bars = useMemo(() => fakeBars(), [])
 
   return (
+    <>
+    <AppHeader email="you@example.com" onSignOut={() => {}} />
     <main className="app-main stack">
       <div className="card">
+        <div className="panel-head">
+          <Logo variant="horizontal" width={300} />
+          <span className="app-header__spacer" />
+          <ThemeToggle />
+        </div>
         <h1>Chart preview (made-up data)</h1>
         <p className="muted">Dev only. Shows every chart with the current brand tokens.</p>
         <div className="stock-head">
@@ -83,5 +93,6 @@ export default function ChartPreview() {
       </div>
       <ChartsTab chart={chart} period={period} years={years} annual={years} bars={bars} multiple={11} />
     </main>
+    </>
   )
 }

@@ -2,9 +2,11 @@ import { useMemo, useState, type FormEvent } from 'react'
 import { useData } from '../screener/DataContext'
 import { useAuth } from '../auth/AuthProvider'
 import { KIND_LABEL, normalizeName, parseMultiple, ruleProblem, type RuleKind } from '../../lib/multipleInput'
+import Modal from '../../components/Modal'
 import { deleteMultiple, saveDefaultMultiple, saveMultiple } from './api'
 
-const KINDS: RuleKind[] = ['category', 'industry', 'sector', 'ticker']
+/** Highest priority first: the first rule that applies to a stock wins. */
+const KINDS: RuleKind[] = ['ticker', 'category', 'industry', 'sector']
 const uniq = (xs: (string | null | undefined)[]) =>
   [...new Set(xs.filter((x): x is string => !!x).map((x) => x.toUpperCase()))].sort()
 
@@ -19,6 +21,7 @@ export default function MultiplesPage() {
   const [defaultText, setDefaultText] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [info, setInfo] = useState(false)
 
   const suggestions = useMemo(() => {
     if (!data) return []
@@ -75,27 +78,22 @@ export default function MultiplesPage() {
   return (
     <div className="stack">
       <div className="card">
-        <h1>Your multiples</h1>
-        <p className="muted">
-          A stock uses the first rule that applies: its own multiple, then its category, then its industry, then its sector,
-          then your default. Where you have set nothing, shared defaults apply. Changes show in the screener straight away.
-        </p>
-        {error && <p className="message message--error">{error}</p>}
-      </div>
-
-      <div className="card">
-        <h2>Default</h2>
-        <div className="inline-form">
-          <label className="field">
-            <span>Multiple for everything without a rule</span>
-            <input
-              inputMode="decimal"
-              value={defaultText ?? String(settings.defaultMultiple)}
-              onChange={(e) => setDefaultText(e.target.value)}
-            />
-          </label>
-          <button className="button" disabled={busy || defaultText === null} onClick={saveDefault}>Save default</button>
+        <div className="panel-head">
+          <h1>Your multiples</h1>
+          <button className="icon-button" onClick={() => setInfo(true)} aria-label="How multiples are chosen" title="How multiples are chosen">ⓘ</button>
         </div>
+        <p>
+          The highest-priority rule that applies to a stock wins:
+        </p>
+        <ol className="priority">
+          <li><strong>Stock</strong> <span className="muted">its own multiple</span></li>
+          <li><strong>Category</strong> <span className="muted">your bucket, e.g. DEFENSE</span></li>
+          <li><strong>Industry</strong></li>
+          <li><strong>Sector</strong></li>
+          <li><strong>Default</strong> <span className="muted">everything else</span></li>
+        </ol>
+        <p className="muted">Changes show in the screener straight away.</p>
+        {error && <p className="message message--error">{error}</p>}
       </div>
 
       <form className="card" onSubmit={add}>
@@ -124,7 +122,7 @@ export default function MultiplesPage() {
         const rules = Object.entries(settings.user[k]).sort(([a], [b]) => a.localeCompare(b))
         return (
           <div className="card" key={k}>
-            <h2>{KIND_LABEL[k]} rules</h2>
+            <h2><span className="rank">{KINDS.indexOf(k) + 1}</span> {KIND_LABEL[k]} rules</h2>
             {rules.length === 0 ? (
               <p className="muted">None yet.</p>
             ) : (
@@ -151,6 +149,52 @@ export default function MultiplesPage() {
           </div>
         )
       })}
+      <div className="card">
+        <h2><span className="rank">5</span> Default</h2>
+        <div className="inline-form">
+          <label className="field">
+            <span>Multiple for everything without a rule</span>
+            <input
+              inputMode="decimal"
+              value={defaultText ?? String(settings.defaultMultiple)}
+              onChange={(e) => setDefaultText(e.target.value)}
+            />
+          </label>
+          <button className="button" disabled={busy || defaultText === null} onClick={saveDefault}>Save default</button>
+        </div>
+      </div>
+
+
+      {info && <PriorityInfo onClose={() => setInfo(false)} />}
     </div>
+  )
+}
+
+/** The detail behind the one-line summary, for people who want to know exactly how it works. */
+function PriorityInfo({ onClose }: { onClose: () => void }) {
+  return (
+    <Modal title="How a multiple is chosen" onClose={onClose}>
+      <p>
+        For every stock the app walks down this list and uses the <strong>first</strong> multiple it finds.
+        The screener shows where it came from: <code>t</code> stock, <code>c</code> category, <code>i</code> industry,
+        <code>s</code> sector, and nothing for the default.
+      </p>
+      <ol>
+        <li><strong>Stock.</strong> A multiple you set on one stock. It beats everything else.</li>
+        <li><strong>Category.</strong> The stock's category is the one <em>you</em> gave it; if you gave none, the shared category
+          from the database is used. Then your rule for that category applies, or a shared rule if you have none.</li>
+        <li><strong>Industry.</strong> Matched on the company's industry (e.g. TOBACCO). Your rule first, then a shared one.</li>
+        <li><strong>Sector.</strong> Matched on the company's sector (e.g. CONSUMER STAPLES). Your rule first, then a shared one.</li>
+        <li><strong>Default.</strong> Your default multiple, or the shared default if you never set one.</li>
+      </ol>
+      <h3>Good to know</h3>
+      <ul>
+        <li>Within one level your own rule beats a shared rule for the same name.</li>
+        <li>A category is a bucket that changes the numbers. A <em>group</em> only filters what you look at and never changes a multiple.</li>
+        <li>Each stock has one category per person, but can be in many groups.</li>
+        <li>Removing a rule never deletes data; the stock simply falls back to the next level.</li>
+        <li>Multiples must be above 0 and at most 200.</li>
+      </ul>
+    </Modal>
   )
 }

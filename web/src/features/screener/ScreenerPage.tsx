@@ -9,6 +9,7 @@ import { moveBefore, reconcilePrefs, type ColumnPrefs } from '../../lib/columnPr
 import { COLUMNS, COLUMN_KEYS, DEFAULT_HIDDEN, REQUIRED } from './columns'
 import DetailsModal from './DetailsModal'
 import ColumnPicker from './ColumnPicker'
+import BulkBar from './BulkBar'
 
 const PREFS_KEY = 'stamper.screener.columns'
 const COLLAPSE_KEY = 'stamper.screener.filtersCollapsed'
@@ -39,6 +40,7 @@ export default function ScreenerPage() {
   const [detailsSymbol, setDetailsSymbol] = useState<string | null>(null)
   const [picking, setPicking] = useState(false)
   const [collapsed, setCollapsed] = useState(loadCollapsed)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
 
   const updatePrefs = (p: ColumnPrefs) => { setPrefs(p); savePrefs(p) }
   const toggleCollapsed = () => {
@@ -62,6 +64,11 @@ export default function ScreenerPage() {
 
   const detailsRow = detailsSymbol ? rows.find((r) => r.symbol === detailsSymbol) ?? null : null
 
+  const visibleSymbols = visible.map((r) => r.symbol)
+  const allSelected = visibleSymbols.length > 0 && visibleSymbols.every((s) => selected.has(s))
+  const toggleOne = (sym: string) => setSelected((cur) => { const n = new Set(cur); if (n.has(sym)) n.delete(sym); else n.add(sym); return n })
+  const toggleAll = () => setSelected((cur) => { const n = new Set(cur); for (const s of visibleSymbols) { if (allSelected) n.delete(s); else n.add(s) } return n })
+
   if (error) return <p className="message message--error">Could not load data: {error}</p>
   if (!data) return <p className="message">Loading…</p>
 
@@ -79,6 +86,7 @@ export default function ScreenerPage() {
   const active = [
     filters.search && `“${filters.search}”`,
     filters.group && `Group ${filters.group}`,
+    filters.category && `Category ${filters.category}`,
     filters.sector,
     filters.industry,
     basis === 'ttm' && 'Trailing four quarters',
@@ -87,6 +95,7 @@ export default function ScreenerPage() {
   ].filter(Boolean) as string[]
 
   const groups = Object.keys(data.settings.groups).sort()
+  const categories = uniqueSorted(rows.map((r) => r.category))
   const sectors = uniqueSorted(rows.map((r) => r.sector))
   const industries = uniqueSorted(
     rows.filter((r) => !filters.sector || r.sector === filters.sector).map((r) => r.industry),
@@ -114,6 +123,13 @@ export default function ScreenerPage() {
           <select value={filters.group ?? ''} onChange={(e) => set({ group: e.target.value || null })}>
             <option value="">All</option>
             {groups.map((g) => <option key={g}>{g}</option>)}
+          </select>
+        </label>
+        <label className="field">
+          <span>Category</span>
+          <select value={filters.category ?? ''} onChange={(e) => set({ category: e.target.value || null })}>
+            <option value="">All</option>
+            {categories.map((c) => <option key={c}>{c}</option>)}
           </select>
         </label>
         <label className="field">
@@ -156,6 +172,13 @@ export default function ScreenerPage() {
         </div>}
       </div>
 
+      {selected.size > 0 && (
+        <BulkBar
+          symbols={[...selected]} categories={categories} groups={groups}
+          onClear={() => setSelected(new Set())}
+        />
+      )}
+
       <div className="card">
         <p className="muted">
           {visible.length} of {rows.length} stocks. Values use your multiples; missing data shows “–”, never zero.
@@ -165,6 +188,9 @@ export default function ScreenerPage() {
           <table className="table">
             <thead>
               <tr>
+                <th className="select-col">
+                  <input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select all shown stocks" />
+                </th>
                 <th aria-label="Actions" />
                 {shown.map((c) => (
                   <th
@@ -185,7 +211,10 @@ export default function ScreenerPage() {
             </thead>
             <tbody>
               {visible.map((r) => (
-                <tr key={r.symbol}>
+                <tr key={r.symbol} className={selected.has(r.symbol) ? 'row-selected' : ''}>
+                  <td className="select-col">
+                    <input type="checkbox" checked={selected.has(r.symbol)} onChange={() => toggleOne(r.symbol)} aria-label={`Select ${r.symbol}`} />
+                  </td>
                   <td className="actions">
                     <Link className="icon-button" to={`/stock/${r.symbol}`} title={`Open ${r.symbol}`} aria-label={`Open ${r.symbol}`}>→</Link>
                     <button className="icon-button" onClick={() => setDetailsSymbol(r.symbol)} title={`Details for ${r.symbol}`} aria-label={`Details for ${r.symbol}`}>ⓘ</button>

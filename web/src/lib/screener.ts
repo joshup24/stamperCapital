@@ -134,13 +134,14 @@ export interface Filters {
   group: string | null
   sector: string | null
   industry: string | null
+  category: string | null
   tests: TestKey[]
   /** Minimum possible gain as a fraction (0.2 = 20%); null = no minimum. */
   minGain: number | null
   search: string
 }
 
-export const NO_FILTERS: Filters = { group: null, sector: null, industry: null, tests: [], minGain: null, search: '' }
+export const NO_FILTERS: Filters = { group: null, sector: null, industry: null, category: null, tests: [], minGain: null, search: '' }
 
 export function applyFilters(rows: ScreenerRow[], f: Filters, groups: Record<string, string[]>): ScreenerRow[] {
   const inGroup = f.group ? new Set(groups[f.group] ?? []) : null
@@ -149,6 +150,7 @@ export function applyFilters(rows: ScreenerRow[], f: Filters, groups: Record<str
     if (inGroup && !inGroup.has(r.symbol)) return false
     if (f.sector && r.sector !== f.sector) return false
     if (f.industry && r.industry !== f.industry) return false
+    if (f.category && r.category !== f.category) return false
     if (q && !r.symbol.includes(q) && !(r.name ?? '').toUpperCase().includes(q)) return false
     if (f.minGain !== null) {
       const g = r.valuation.possibleGain

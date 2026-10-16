@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { supabase } from '../../lib/supabase'
 import { brand } from '../../brand/brand'
+import Logo from '../../components/Logo'
+import ThemeToggle from '../../components/ThemeToggle'
 
 // Sign-in only. Accounts are invite-only (public sign-ups are switched off in Supabase).
 export default function LoginPage() {
@@ -20,9 +22,10 @@ export default function LoginPage() {
 
   return (
     <div className="login">
+      <div className="login__theme"><ThemeToggle /></div>
       <form className="card login__form" onSubmit={submit}>
-        {brand.logo && <img src={brand.logo} alt={brand.name} className="login__logo" />}
-        <h1>{brand.name}</h1>
+        <Logo variant="stacked" width={240} className="login__logo" />
+        <h1 className="sr-only">Sign in to {brand.name}</h1>
         <label className="field">
           <span>Email</span>
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="username" />

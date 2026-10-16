@@ -106,3 +106,8 @@ export async function loadSettings(): Promise<UserSettings> {
 
   return { defaultMultiple, user, shared, userCategory, groups }
 }
+
+/** Every stock the database knows (the ticker table), including ones without statements yet. */
+export async function loadTickerSymbols(): Promise<Set<string>> {
+  return new Set((await fetchAll('ticker', 'symbol')).map((r) => String(r.symbol)))
+}
