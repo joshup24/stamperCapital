@@ -15,13 +15,16 @@ on:
         description: "Refetch everything, even what is up to date (for the tickers above, or for all if blank)"
         type: boolean
         default: false
-  # Tuesday to Saturday at 3am Pacific Standard Time: the morning after each market day
-  # (Mon-Fri), long after the close, so Friday's results are ready Saturday and nothing
-  # waits for Monday. GitHub schedules are in UTC and do not follow daylight saving:
-  # 11:00 UTC is 3am PST in winter and 4am PDT in summer. Each run only fetches what is
-  # due: quotes every run, statements only after a company has reported.
+  # Every market evening, Mon-Fri, which is Tuesday to Saturday in UTC (00:30 UTC is 8:30pm
+  # EDT in summer and 7:30pm EST in winter). The quote probe (Oct 2026) showed Alpha Vantage's
+  # quote is not final until about 7pm Eastern: 40% final at 5pm, 80% at 6:30pm, 100% from 7pm.
+  # 00:30 UTC is after that on both sides of the clock change (UTC does not follow daylight
+  # saving). It also survives GitHub's habit of starting scheduled runs hours late: a delay only
+  # pushes the run later, whereas the old 11:00 UTC (7am ET) slot slid past the 9:30am open
+  # and stored intraday prices as if they were closes. Each run only fetches what is due:
+  # quotes every run, statements only after a company has reported.
   schedule:
-    - cron: "0 11 * * 2-6"
+    - cron: "30 0 * * 2-6"
 
 # Never let two runs overlap (a manual run during a scheduled one): they share one
 # Alpha Vantage rate limit. The second waits for the first.
