@@ -1,9 +1,9 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { useData } from '../screener/DataContext'
 import { useAuth } from '../auth/AuthProvider'
-import { KIND_LABEL, normalizeName, parseMultiple, ruleProblem, type RuleKind } from '../../lib/multipleInput'
+import { KIND_LABEL, creditToPercentText, normalizeName, parseCredit, parseMultiple, ruleProblem, type RuleKind } from '../../lib/multipleInput'
 import Modal from '../../components/Modal'
-import { deleteMultiple, saveDefaultMultiple, saveMultiple } from './api'
+import { deleteMultiple, saveCredits, saveDefaultMultiple, saveMultiple } from './api'
 
 /** Highest priority first: the first rule that applies to a stock wins. */
 const KINDS: RuleKind[] = ['ticker', 'category', 'industry', 'sector']
@@ -22,6 +22,8 @@ export default function MultiplesPage() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [info, setInfo] = useState(false)
+  const [intText, setIntText] = useState<string | null>(null)
+  const [ppeText, setPpeText] = useState<string | null>(null)
 
   const suggestions = useMemo(() => {
     if (!data) return []
@@ -67,6 +69,17 @@ export default function MultiplesPage() {
     const m = parseMultiple(defaultText ?? '')
     if (m === null) { setError('Default multiple must be a number above 0.'); return }
     void run(async () => { await saveDefaultMultiple(userId, m); setDefaultText(null) })
+  }
+
+  function saveBalanceCredits() {
+    const i = intText === null ? settings.credits.intangibles : parseCredit(intText)
+    const p = ppeText === null ? settings.credits.ppe : parseCredit(ppeText)
+    if (i === null || p === null) { setError('Enter each percentage as a number from 0 to 100.'); return }
+    void run(async () => { await saveCredits(userId, i, p); setIntText(null); setPpeText(null) })
+  }
+
+  function resetBalanceCredits() {
+    void run(async () => { await saveCredits(userId, null, null); setIntText(null); setPpeText(null) })
   }
 
   function changeRule(k: RuleKind, n: string, text: string, current: number) {
@@ -164,6 +177,45 @@ export default function MultiplesPage() {
         </div>
       </div>
 
+
+      <div className="card">
+        <h2>Value of assets: what counts</h2>
+        <p className="muted">
+          Value of assets = total assets − total liabilities, after discounting the items below. Each percentage is how much of
+          that item you count as real value: 0% means none of it, 50% means half. This is your own “custom balance”.
+        </p>
+        <div className="inline-form">
+          <label className="field">
+            <span>Intangibles and goodwill counted (%)</span>
+            <input
+              inputMode="decimal"
+              value={intText ?? creditToPercentText(settings.credits.intangibles)}
+              onChange={(e) => setIntText(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>Property, plant and equipment counted (%)</span>
+            <input
+              inputMode="decimal"
+              value={ppeText ?? creditToPercentText(settings.credits.ppe)}
+              onChange={(e) => setPpeText(e.target.value)}
+            />
+          </label>
+          <button className="button" disabled={busy || (intText === null && ppeText === null)} onClick={saveBalanceCredits}>Save</button>
+          <button
+            className="button button--ghost"
+            disabled={busy || (settings.userCredits.intangibles === null && settings.userCredits.ppe === null)}
+            onClick={resetBalanceCredits}
+          >
+            Use shared defaults
+          </button>
+        </div>
+        <p className="muted">
+          Shared defaults: intangibles and goodwill {creditToPercentText(settings.sharedCredits.intangibles)}%, property, plant and
+          equipment {creditToPercentText(settings.sharedCredits.ppe)}%.
+          {settings.userCredits.intangibles === null && settings.userCredits.ppe === null ? ' You are using the shared defaults.' : ' You have your own values.'}
+        </p>
+      </div>
 
       {info && <PriorityInfo onClose={() => setInfo(false)} />}
     </div>

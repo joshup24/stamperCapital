@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useData } from '../screener/DataContext'
 import { buildRow } from '../../lib/screener'
 import { buildYears } from '../../lib/financials'
@@ -7,6 +7,9 @@ import type { PriceBar } from '../../lib/prices'
 import { money, percent } from '../../lib/format'
 import Gauge from '../../components/Gauge'
 import Tabs from '../../components/Tabs'
+import FilterSelect from '../../components/FilterSelect'
+import StockPicker from './StockPicker'
+import { forgetStock, readLastStock, rememberStock, stockOptions, stockPath } from '../../lib/stockOptions'
 import SummaryTab from './SummaryTab'
 import ChartsTab, { CHART_TABS, PERIOD_CHARTS, type ChartKey } from './ChartsTab'
 import { loadPriceBars, loadStockHistory, type StockHistory } from './load'
@@ -17,12 +20,31 @@ const isTab = (k: string | null): k is string => !!k && TABS.some((t) => t.key =
 
 /** The key makes React start fresh when you move to a different stock. */
 export default function StockPage() {
-  const { symbol = '' } = useParams()
+  const { symbol } = useParams()
+  if (!symbol) return <StockIndex />
   return <StockView key={symbol} symbol={symbol} />
+}
+
+/** The "Stock" tab with no stock chosen: reopen the last one, or ask for one. */
+function StockIndex() {
+  const { data } = useData()
+  const navigate = useNavigate()
+  if (!data) return <p className="message">Loading…</p>
+  const last = readLastStock()
+  if (last && data.components.some((c) => c.symbol === last)) return <Navigate to={stockPath(last)} replace />
+  return (
+    <div className="card">
+      <h1>Stock detail</h1>
+      <p className="muted">Pick a stock, or open one from the screener with its → button.</p>
+      <StockPicker symbol={null} options={stockOptions(data.components, null)} onChange={(s) => navigate(stockPath(s))} />
+    </div>
+  )
 }
 
 function StockView({ symbol }: { symbol: string }) {
   const { data } = useData()
+  const navigate = useNavigate()
+  const location = useLocation()
   const [params, setParams] = useSearchParams()
   const tab = isTab(params.get('tab')) ? params.get('tab')! : 'summary'
   const [period, setPeriod] = useState<Period>('annual')
@@ -49,19 +71,34 @@ function StockView({ symbol }: { symbol: string }) {
     loadPriceBars(symbol).then(setBars).catch((e: Error) => setError(e.message))
   }, [symbol])
 
+  useEffect(() => { rememberStock(symbol) }, [symbol])
+
   const component = data?.components.find((c) => c.symbol === symbol)
   const row = useMemo(
     () => (data && component ? buildRow(component, data.settings, 'fy') : null),
     [data, component],
   )
 
-  const build = (h?: StockHistory) => (h ? buildYears(h.income, h.balance, h.cash, h.credits) : null)
-  const annual = useMemo(() => build(histories.annual), [histories.annual])
-  const selected = useMemo(() => build(histories[wanted]), [histories, wanted])
+  // the user's own balance sheet credits, so charts agree with the screener
+  const credits = data?.settings.credits
+  const annual = useMemo(
+    () => (histories.annual ? buildYears(histories.annual.income, histories.annual.balance, histories.annual.cash, credits ?? histories.annual.credits) : null),
+    [histories.annual, credits],
+  )
+  const selected = useMemo(() => {
+    const h = histories[wanted]
+    return h ? buildYears(h.income, h.balance, h.cash, credits ?? h.credits) : null
+  }, [histories, wanted, credits])
 
   if (!data) return <p className="message">Loading…</p>
   if (!component || !row) {
-    return <div className="card"><p>No data for {symbol}.</p><Link to="/">Back to screener</Link></div>
+    return (
+      <div className="card">
+        <p>No data for {symbol}.</p>
+        <StockPicker symbol={symbol} options={stockOptions(data.components, symbol)} onChange={(next) => navigate(stockPath(next, location.search))} onClear={() => { forgetStock(); navigate('/stock') }} />
+        <p><Link to="/">Back to screener</Link></p>
+      </div>
+    )
   }
 
   const v = row.valuation
@@ -70,7 +107,15 @@ function StockView({ symbol }: { symbol: string }) {
     <div className="stack">
       <div className="card stock-head">
         <div>
-          <p><Link to="/">← Screener</Link></p>
+          <div className="stock-nav">
+            <Link to="/">← Screener</Link>
+            <StockPicker
+              symbol={symbol}
+              options={stockOptions(data.components, symbol)}
+              onChange={(next) => navigate(stockPath(next, location.search))}
+              onClear={() => { forgetStock(); navigate('/stock') }}
+            />
+          </div>
           <h1>{symbol}{component.name ? ` · ${component.name}` : ''}</h1>
           <p className="muted">{[component.industry, component.sector].filter(Boolean).join(' · ') || '–'}</p>
           <dl className="facts facts--tight">
@@ -90,13 +135,11 @@ function StockView({ symbol }: { symbol: string }) {
           <Tabs tabs={TABS} active={tab} onChange={(k) => setParams(k === 'summary' ? {} : { tab: k })} />
           <span className="app-header__spacer" />
           {usesPeriod && (
-            <label className="field field--inline">
-              <span>Period</span>
-              <select value={period} onChange={(e) => setPeriod(e.target.value as Period)}>
-                <option value="annual">Annual</option>
-                <option value="quarterly">Quarterly</option>
-              </select>
-            </label>
+            <FilterSelect
+              label="Period" value={period} defaultValue="annual" inline
+              options={[{ value: 'annual', label: 'Annual' }, { value: 'quarterly', label: 'Quarterly' }]}
+              onChange={(v) => setPeriod(v as Period)}
+            />
           )}
         </div>
       </div>

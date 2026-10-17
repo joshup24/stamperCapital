@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       symbols:
-        description: "Only these tickers, space-separated (blank = all active). A new ticker gets everything; others only what is due."
+        description: "TICKERS only, space-separated (blank = all active). Job names like fx go in the NEXT box, not here. A new ticker gets everything; others only what is due."
         required: false
         default: ""
       only:
-        description: "Comma list of jobs, e.g. prices,quote (blank = all that are due)"
+        description: "JOBS, comma list, e.g. fx or prices,quote (blank = all that are due). This is the box for fx."
         required: false
         default: ""
       force:

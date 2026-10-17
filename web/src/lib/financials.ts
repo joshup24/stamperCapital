@@ -26,6 +26,8 @@ export interface AssetCredits {
   ppe: number
 }
 
+/** Last-resort values, used only if the database cannot be read. The real defaults live in valuation_param
+ *  (shared) and user_setting (per user); nothing else should hard-code them. */
 export const DEFAULT_CREDITS: AssetCredits = { intangibles: 0, ppe: 0.5 }
 
 export interface YearRow {
@@ -38,6 +40,9 @@ export interface YearRow {
   operatingIncome: Num
   ebitda: Num
   netIncome: Num
+  netIncomeCont: Num
+  /** the lower of net income and continuing-operations income (net income alone when that is missing): the figure the valuation and the ratio stack both use */
+  netIncomeUsed: Num
   // balance sheet
   totalAssets: Num
   totalLiabilities: Num
@@ -57,6 +62,7 @@ export interface YearRow {
   assetsValue: Num
   assetsPerShare: Num
   netIncomePerShare: Num
+  netIncomeContPerShare: Num
   ebitdaPerShare: Num
   dividendsPerShare: Num
   /** true when a needed exchange rate was missing, so money figures are blank */
@@ -105,6 +111,8 @@ export function buildYears(
       const shares = get(b, 'common_stock_shares_outstanding')
 
       const netIncome = usd(i, 'net_income')
+      const netIncomeCont = usd(i, 'net_income_from_continuing_operations')
+      const netIncomeUsed = netIncome === null ? null : netIncomeCont === null ? netIncome : Math.min(netIncome, netIncomeCont)
       const ebitda = usd(i, 'ebitda')
       const dividends = usd(c, 'dividend_payout')
       const operatingCashflow = usd(c, 'operating_cashflow')
@@ -121,6 +129,8 @@ export function buildYears(
         operatingIncome: usd(i, 'operating_income'),
         ebitda,
         netIncome,
+        netIncomeCont,
+        netIncomeUsed,
         totalAssets,
         totalLiabilities,
         equity: usd(b, 'total_shareholder_equity'),
@@ -137,6 +147,7 @@ export function buildYears(
         assetsValue: av,
         assetsPerShare: div(av, shares),
         netIncomePerShare: div(netIncome, shares),
+        netIncomeContPerShare: div(netIncomeCont, shares),
         ebitdaPerShare: div(ebitda, shares),
         dividendsPerShare: div(dividends ?? 0, shares),
         fxMissing: b.fx === null,
@@ -162,6 +173,7 @@ export function valueHistory(years: YearRow[], multiple: number): ValuePoint[] {
       multiple,
       assetsPerShare: y.assetsPerShare,
       netIncomePerShare: y.netIncomePerShare,
+      netIncomeContPerShare: y.netIncomeContPerShare,
       ebitdaPerShare: y.ebitdaPerShare,
       dividendsPerShare: y.dividendsPerShare,
       price: null,
@@ -195,7 +207,8 @@ export interface RatioStack {
 }
 
 export function ratioStack(y: YearRow): RatioStack | null {
-  const { revenue, cogs, operatingExpenses, netIncome } = y
+  const { revenue, cogs, operatingExpenses } = y
+  const netIncome = y.netIncomeUsed // lower of net income and continuing operations, as in the valuation
   if (revenue === null || revenue <= 0 || cogs === null || operatingExpenses === null || netIncome === null) return null
   const other = revenue - cogs - operatingExpenses - netIncome
   const parts = { cogs: cogs / revenue, operating: operatingExpenses / revenue, other: other / revenue, netIncome: netIncome / revenue }

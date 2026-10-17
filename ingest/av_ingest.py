@@ -16,6 +16,10 @@ A run that hits the daily quota stops cleanly and the next run picks up where it
 Any other failure is retried after 10s, 30s and 60s, then recorded and skipped (the next run
 tries again, since nothing was marked done). Every retry and failure is also appended to
 logs/ingest_errors.log.
+One exception, for tickers with no company data: if their price request is rejected it is a WARNING,
+not an error (the run stays green). After three failing runs in a row their prices are set aside for
+7 days (ticker.price_parked_until), then tried once more with no retries. A job name typed where a
+ticker belongs ("fx") is refused instead of being added as a ticker. See ingest/rules.py.
 
 Usage:
   python ingest/av_ingest.py                    # everything that is due, all active tickers
@@ -39,6 +43,7 @@ from dotenv import load_dotenv
 from supabase import create_client
 
 from columns import STATEMENT_FIELDS
+from rules import drop_parked, failure_state, job_name_mistakes, needs_single_try, parse_date
 
 load_dotenv()
 
@@ -90,6 +95,8 @@ class NoFundamentals(SkipSymbol):
 _recent_calls = deque()  # monotonic times of the calls made in the last minute
 api_calls = 0
 ERRORS = {}
+WARNINGS = {}   # problems that do not fail the run: a no-data stock whose prices were rejected
+PRICE_STATE = {}  # symbol -> (failing runs in a row, parked_until): see rules.py
 DONE = {}       # job -> tickers it completed for in this run, for the emailed report
 RUN_NOTES = {}  # other facts about the run for the report
 
@@ -142,11 +149,14 @@ def write_summary(status, started, tickers, jobs):
         f"tickers: {tickers}",
         f"jobs: {', '.join(jobs)}",
         f"errors: {len(ERRORS)}",
+        f"warnings: {len(WARNINGS)}",
+        f"parked_prices: {RUN_NOTES.get('parked_prices', 0)}",
         "done: " + (", ".join(f"{job} {len(syms)}" for job, syms in DONE.items()) or "nothing was due"),
         "statements_refreshed: " + (", ".join(sorted({s for j in ("income", "balance", "cashflow", "earnings")
                                                        for s in DONE.get(j, [])})) or "none"),
         f"no_data_tickers: {RUN_NOTES.get('no_data_tickers', 0)}",
-    ] + [f"error: {key}: {' '.join(str(msg).split())}" for key, msg in ERRORS.items()]
+    ] + [f"error: {key}: {' '.join(str(msg).split())}" for key, msg in ERRORS.items()] \
+      + [f"warning: {key}: {' '.join(str(msg).split())}" for key, msg in WARNINGS.items()]
     try:
         LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         (LOG_PATH.parent / "ingest_summary.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -533,6 +543,46 @@ def due_symbols(job, symbols, today=None):
 NO_FUNDAMENTALS_JOBS = ("overview", "prices", "quote")  # what still makes sense without company data
 
 
+def load_price_state():
+    """Which stocks' prices keep failing, from ticker.price_fail_count / price_parked_until. If those
+    columns do not exist yet (migration 20261016020000 not run) parking is simply off and failures
+    behave as before."""
+    try:
+        rows = fetch_all("ticker", "symbol,price_fail_count,price_parked_until", ["symbol"],
+                         lambda q: q.gt("price_fail_count", 0))
+    except Exception as e:
+        print(f"note: price parking is off ({' '.join(str(e).split())[:90]}); "
+              "run supabase/migrations/20261016020000_price_parking.sql to turn it on")
+        return {}
+    return {r["symbol"]: (r["price_fail_count"] or 0, parse_date(r["price_parked_until"])) for r in rows}
+
+
+def save_price_state(symbol, count, parked_until):
+    """Remember (or, with count 0, forget) a stock's failing prices. Never lets bookkeeping fail the run."""
+    if count:
+        PRICE_STATE[symbol] = (count, parked_until)
+    else:
+        PRICE_STATE.pop(symbol, None)
+    try:
+        sb.table("ticker").update({
+            "price_fail_count": count,
+            "price_parked_until": parked_until.isoformat() if parked_until else None,
+        }).eq("symbol", symbol).execute()
+    except Exception as e:
+        print(f"note: could not record price failures for {symbol}: {' '.join(str(e).split())[:90]}")
+
+
+def note_price_failure(symbol, error, count):
+    """A stock with no company data had its prices rejected. A warning, not an error: it does not turn
+    the run red, and after repeated failures its prices are set aside for a while."""
+    new_count, parked_until = failure_state(count, date.today())
+    save_price_state(symbol, new_count, parked_until)
+    when = f"set aside until {parked_until}" if parked_until else f"failed {new_count} run(s) in a row"
+    WARNINGS[f"{symbol}:prices"] = f"{' '.join(str(error).split())} ({when})"
+    log_event("WARN", f"{symbol} prices", f"no company data and prices rejected; {when}")
+    print(f"WARN {symbol:<8} prices: {error} ({when})")
+
+
 def run_symbol(sym, jobs, due, no_data):
     """Run the due jobs for one ticker. One without company data only gets the overview
     recheck, prices and quotes."""
@@ -542,10 +592,16 @@ def run_symbol(sym, jobs, due, no_data):
             continue
         if skip_statements and job not in NO_FUNDAMENTALS_JOBS:
             continue
+        failed_runs = PRICE_STATE.get(sym, (0, None))[0] if job == "prices" else 0
         try:
-            with_retries(f"{sym} {job}", lambda: JOBS[job](sym))
+            if job == "prices" and skip_statements and needs_single_try(failed_runs):
+                JOBS[job](sym)  # a known problem coming up for its recheck: one cheap try, no waiting
+            else:
+                with_retries(f"{sym} {job}", lambda: JOBS[job](sym))
             DONE.setdefault(job, []).append(sym)
             print(f"ok   {sym:<8} {job}")
+            if failed_runs:
+                save_price_state(sym, 0, None)  # it works again: forget the failures
         except NoFundamentals as e:
             skip_statements = True
             print(f"skip {sym:<8} {e}")
@@ -555,6 +611,9 @@ def run_symbol(sym, jobs, due, no_data):
         except AVLimitError:
             raise
         except Exception as e:
+            if job == "prices" and skip_statements:
+                note_price_failure(sym, e, failed_runs)  # no company data: a warning, not a failed run
+                continue
             ERRORS[f"{sym}:{job}"] = str(e)
             print(f"FAIL {sym:<8} {job}: {e}")
             if job == "overview":
@@ -567,6 +626,10 @@ def main():
     ap.add_argument("--only", help="comma list of jobs: calendar,fx," + ",".join(JOBS))
     ap.add_argument("--force", action="store_true", help="ignore what is already up to date")
     args = ap.parse_args()
+    mistakes = job_name_mistakes(args.symbols, ["calendar", "fx", *JOBS])
+    if mistakes:
+        ap.error(f"{', '.join(mistakes)}: that is a job name, not a ticker, so nothing was added or fetched. "
+                 "In the GitHub form, put job names in the 'jobs' box (the second one) and leave 'tickers' for tickers.")
     sys.stdout = Tee(sys.stdout, LOG_PATH.parent / "ingest_run.log")  # a complete copy of the run, for the report
 
     jobs = args.only.split(",") if args.only else ["calendar", "fx"] + list(JOBS)
@@ -605,10 +668,17 @@ def main():
         if run_fx:
             ingest_fx()
 
+        PRICE_STATE.update(load_price_state())
         due = {}
         for j in jobs:
             pool = symbols if j in NO_FUNDAMENTALS_JOBS else [s for s in symbols if s not in no_data]
             due[j] = set(pool) if force else due_symbols(j, pool)
+        if "prices" in due and not force:  # a forced run still tries everything
+            due["prices"], parked = drop_parked(due["prices"], PRICE_STATE, date.today())
+            if parked:
+                RUN_NOTES["parked_prices"] = len(parked)
+                print(f"parked: prices left alone for {len(parked)} stock(s) with no company data whose "
+                      f"requests keep failing: {', '.join(parked)}")
         print("due:", ", ".join(f"{j} {len(due[j])}" for j in jobs) or "nothing")
 
         for sym in (symbols if jobs else []):

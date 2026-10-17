@@ -27,6 +27,7 @@ function Shell() {
           <Route path="/" element={<ScreenerPage />} />
           <Route path="/multiples" element={<MultiplesPage />} />
           <Route path="/import" element={<ImportPage />} />
+          <Route path="/stock" element={<StockPage />} />
           <Route path="/stock/:symbol" element={<StockPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

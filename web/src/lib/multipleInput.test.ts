@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeName, parseMultiple, ruleProblem } from './multipleInput'
+import { creditToPercentText, normalizeName, parseCredit, parseMultiple, ruleProblem } from './multipleInput'
 
 describe('parseMultiple', () => {
   it('accepts normal numbers', () => {
@@ -29,5 +29,23 @@ describe('ruleProblem', () => {
     expect(ruleProblem('category', '  ', '9', symbols)).toMatch(/name/)
     expect(ruleProblem('ticker', 'ZZZZ', '9', symbols)).toMatch(/not a stock/)
     expect(ruleProblem('sector', 'energy', '0', symbols)).toMatch(/Multiple/)
+  })
+})
+
+describe('parseCredit', () => {
+  it('reads percentages as fractions, with or without a % sign', () => {
+    expect(parseCredit('50')).toBe(0.5)
+    expect(parseCredit(' 50% ')).toBe(0.5)
+    expect(parseCredit('0')).toBe(0)
+    expect(parseCredit('100')).toBe(1)
+    expect(parseCredit('12.5')).toBe(0.125)
+  })
+  it('rejects empty, junk and anything outside 0 to 100', () => {
+    for (const bad of ['', '  ', 'abc', '-1', '101', '1e9', 'NaN']) expect(parseCredit(bad)).toBeNull()
+  })
+  it('shows a fraction as a clean percent', () => {
+    expect(creditToPercentText(0.5)).toBe('50')
+    expect(creditToPercentText(0)).toBe('0')
+    expect(creditToPercentText(0.125)).toBe('12.5')
   })
 })

@@ -4,10 +4,12 @@ import { useMemo, useState } from 'react'
 import { buildYears, type StatementRow } from '../lib/financials'
 import type { PriceBar } from '../lib/prices'
 import Tabs from '../components/Tabs'
+import FilterSelect from '../components/FilterSelect'
 import Gauge from '../components/Gauge'
 import Logo from '../components/Logo'
 import ThemeToggle from '../components/ThemeToggle'
 import AppHeader from '../components/AppHeader'
+import StockPicker from '../features/stock/StockPicker'
 import ChartsTab, { CHART_TABS, type ChartKey } from '../features/stock/ChartsTab'
 import { percent } from '../lib/format'
 
@@ -72,6 +74,7 @@ export default function ChartPreview() {
           <ThemeToggle />
         </div>
         <h1>Chart preview (made-up data)</h1>
+        <StockPicker symbol="MO" onChange={() => {}} onClear={() => {}} options={[{ symbol: 'AAPL', label: 'AAPL · Apple Inc' }, { symbol: 'FCX', label: 'FCX · Freeport-McMoRan Copper & Gold Inc' }, { symbol: 'IMO', label: 'IMO · Imperial Oil Ltd' }, { symbol: 'MO', label: 'MO · Altria Group' }, { symbol: 'MOS', label: 'MOS · Mosaic Company' }, { symbol: 'PM', label: 'PM · Philip Morris International Inc' }, { symbol: 'THR', label: 'THR · Thermon Group Holdings' }, { symbol: 'XOM', label: 'XOM · Exxon Mobil Corp' }]} />
         <p className="muted">Dev only. Shows every chart with the current brand tokens.</p>
         <div className="stock-head">
           <Gauge value={0.42} label="Possible gain" display={percent(0.42)} />
@@ -83,12 +86,11 @@ export default function ChartPreview() {
         <div className="panel-head">
           <Tabs tabs={CHART_TABS} active={chart} onChange={(k) => setChart(k as ChartKey)} />
           <span className="app-header__spacer" />
-          <label className="field field--inline">
-            <span>Period</span>
-            <select value={period} onChange={(e) => setPeriod(e.target.value as 'annual' | 'quarterly')}>
-              <option value="annual">Annual</option><option value="quarterly">Quarterly</option>
-            </select>
-          </label>
+          <FilterSelect
+            label="Period" value={period} defaultValue="annual" inline
+            options={[{ value: 'annual', label: 'Annual' }, { value: 'quarterly', label: 'Quarterly' }]}
+            onChange={(v) => setPeriod(v as 'annual' | 'quarterly')}
+          />
         </div>
       </div>
       <ChartsTab chart={chart} period={period} years={years} annual={years} bars={bars} multiple={11} />

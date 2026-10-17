@@ -60,6 +60,12 @@ run tries again. Only a daily-quota / key / plan message stops the run at once. 
 failure is a line in `logs/ingest_errors.log`, which a GitHub run keeps as a downloadable
 artifact (run page, Artifacts at the bottom), and failures are also in `ingest_run.errors`.
 
+**Stray tickers:** a ticker with no company data (ETF, OTC ADR, delisted name) whose price request is
+rejected is a *warning*, not an error, so it never turns the run red. After three failing runs in a row its
+prices are set aside for 7 days (`ticker.price_parked_until`), then tried once more with no retries; a
+success clears it. Both numbers are `PARK_AFTER` and `PARK_DAYS` in `ingest/rules.py`. A job name typed in the GitHub form's *tickers* box (e.g. `fx`) is refused instead of
+being added as a ticker: job names go in the *jobs* box. Unit tests: `python -m unittest discover -s ingest`.
+
 **Email report (optional).** After every run `tools/send_report.py` emails a summary (status, calls,
 minutes, errors in the subject line), what was updated (including which companies got new statements),
 the retry and failure lines, and the full run log attached. It does nothing until these GitHub

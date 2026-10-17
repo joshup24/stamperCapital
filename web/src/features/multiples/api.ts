@@ -101,3 +101,14 @@ export async function applyImport(
   for (const [g, symbols] of groups) { await addToGroup(userId, g, [...symbols]); memberships += symbols.size }
   return { categories: cat.size, memberships }
 }
+
+/** Saves how much of each balance sheet item counts as value (0 to 1). null = use the shared default. */
+export async function saveCredits(userId: string, intangibles: number | null, ppe: number | null) {
+  const { error } = await supabase
+    .from('user_setting')
+    .upsert(
+      { user_id: userId, intangibles_credit: intangibles, ppe_credit: ppe, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id' },
+    )
+  check(error)
+}

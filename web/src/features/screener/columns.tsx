@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import type { ScreenerRow } from '../../lib/screener'
-import type { Num } from '../../lib/valuation'
+import { isAlert, type Num } from '../../lib/valuation'
 import { money, percent, signClass } from '../../lib/format'
 
 // One definition per table column. Adding a column to the screener = adding an entry here;
@@ -19,6 +19,13 @@ export interface Column {
 }
 
 const text = (v: string | null) => v ?? '–'
+
+/** An alert value; highlighted with a ▲ (never colour alone) when it is above zero. */
+function alertCell(value: Num, onTitle: string, offTitle: string): ReactNode {
+  return isAlert(value)
+    ? <span className="flag" title={onTitle}>▲ {money(value, 1)}</span>
+    : <span title={offTitle}>{money(value, 1)}</span>
+}
 
 export const COLUMNS: Column[] = [
   { key: 'symbol', label: 'Symbol', align: 'left', value: (r) => r.symbol, defaultVisible: true, required: true,
@@ -55,6 +62,20 @@ export const COLUMNS: Column[] = [
     render: (r) => money(r.valuation.intrinsic) },
   { key: 'gain', label: 'Possible gain', align: 'right', value: (r) => r.valuation.possibleGain, defaultVisible: true,
     render: (r) => <span className={`strong ${signClass(r.valuation.possibleGain)}`}>{percent(r.valuation.possibleGain)}</span> },
+  { key: 'multCust', label: 'Mult-Cust', align: 'right', value: (r) => r.valuation.breakEvenMultiple, defaultVisible: true,
+    render: (r) => <span title="Net-income multiple at which value would equal the price">{money(r.valuation.breakEvenMultiple, 1)}</span> },
+  { key: 'voiPrice', label: 'VoI − Price', align: 'right', value: (r) => r.valuation.voiMinusPrice, defaultVisible: true,
+    render: (r) => <span className={signClass(r.valuation.voiMinusPrice)}>{money(r.valuation.voiMinusPrice)}</span> },
+  { key: 'alert1', label: 'Alert 1', align: 'right', value: (r) => r.valuation.alert1, defaultVisible: true,
+    render: (r) => alertCell(r.valuation.alert1, 'Assets value exceeds the price', 'Assets value minus price') },
+  { key: 'alert2', label: 'Alert 2', align: 'right', value: (r) => r.valuation.alert2, defaultVisible: true,
+    render: (r) => alertCell(r.valuation.alert2, 'Assets plus dividend value exceed the price', 'Assets plus dividend value, minus price') },
+  { key: 'revenue', label: 'Revenue 000s', align: 'right', value: (r) => r.revenue000s, defaultVisible: false,
+    render: (r) => money(r.revenue000s, 0) },
+  { key: 'currency', label: 'Curr', align: 'left', value: (r) => r.currency, defaultVisible: false,
+    render: (r) => <span className="muted">{text(r.currency)}</span> },
+  { key: 'marketCap', label: 'Market Cap 000s', align: 'right', value: (r) => r.marketCap000s, defaultVisible: false,
+    render: (r) => money(r.marketCap000s, 0) },
   { key: 'priceDate', label: 'Price date', align: 'left', value: (r) => r.priceDate, defaultVisible: false,
     render: (r) => <span className="muted">{text(r.priceDate)}</span> },
   { key: 'balanceDate', label: 'Balance sheet', align: 'left', value: (r) => r.balanceSheetDate, defaultVisible: false,

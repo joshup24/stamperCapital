@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Modal from '../../components/Modal'
 import { supabase } from '../../lib/supabase'
-import { money, percent } from '../../lib/format'
+import { compactMoney, money, percent } from '../../lib/format'
 import type { ScreenerRow } from '../../lib/screener'
 import MultipleEditor from './MultipleEditor'
 
@@ -20,10 +20,10 @@ interface Overview {
   description: string | null
 }
 
-const compact = (v: string | number | null) => {
+const compact = (v: string | number | null, asMoney = false) => {
   if (v === null) return '–'
   const n = Number(v)
-  return Number.isFinite(n) ? new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(n) : '–'
+  return Number.isFinite(n) ? compactMoney(n, asMoney) : '–'
 }
 
 export default function DetailsModal({ row, onClose }: { row: ScreenerRow; onClose: () => void }) {
@@ -53,7 +53,7 @@ export default function DetailsModal({ row, onClose }: { row: ScreenerRow; onClo
     ['Sector', o?.sector ?? row.sector ?? '–'],
     ['Industry', o?.industry ?? row.industry ?? '–'],
     ['Your category', row.category ?? '–'],
-    ['Market cap', compact(o?.market_cap ?? null)],
+    ['Market cap', compact(o?.market_cap ?? null, true)],
     ['Shares outstanding', compact(o?.shares_outstanding ?? null)],
     ['Fiscal year end', o?.fiscal_year_end ?? '–'],
     ['Latest quarter', o?.latest_quarter ?? '–'],

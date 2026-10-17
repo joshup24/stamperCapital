@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { gainOverPrice, resolveMultiple, valuate } from './valuation'
+import { gainOverPrice, isAlert, resolveMultiple, valuate } from './valuation'
 
 // Altria (MO), fiscal 2023, from the Power BI report: multiple 11,
 // net income/share 4.61, dividends/share 3.84, assets/share -14.06, price 49.33.
@@ -97,5 +97,58 @@ describe('resolveMultiple', () => {
 
   it('treats a multiple of 0 as a real setting, not as missing', () => {
     expect(resolveMultiple({ ticker: 0, fallback }).multiple).toBe(0)
+  })
+})
+
+describe('income value uses the lower of net income and continuing operations', () => {
+  it('takes continuing operations when it is lower', () => {
+    expect(valuate({ ...MO, netIncomeContPerShare: 3 }).incomeValue).toBeCloseTo(33, 6)
+  })
+  it('takes net income when it is lower', () => {
+    expect(valuate({ ...MO, netIncomeContPerShare: 9 }).incomeValue).toBeCloseTo(50.71, 2)
+  })
+  it('uses net income when continuing operations is missing', () => {
+    expect(valuate({ ...MO, netIncomeContPerShare: null }).incomeValue).toBeCloseTo(50.71, 2)
+    expect(valuate(MO).incomeValue).toBeCloseTo(50.71, 2)
+  })
+  it('stays missing when net income itself is missing', () => {
+    expect(valuate({ ...MO, netIncomePerShare: null, netIncomeContPerShare: 3 }).incomeValue).toBeNull()
+  })
+})
+
+describe('alerts, VoI - Price and the break-even multiple', () => {
+  it('computes them for MO as the Equity Summary does', () => {
+    const r = valuate(MO)
+    expect(r.voiMinusPrice).toBeCloseTo(50.71 - 49.33, 2)
+    expect(r.alert1).toBeCloseTo(-14.06 - 49.33, 2)
+    expect(r.alert2).toBeCloseTo(-14.06 + 42.24 - 49.33, 2)
+    expect(r.breakEvenMultiple).toBeCloseTo((49.33 + 14.06 - 42.24) / 4.61, 3) // about 4.6
+  })
+  it('the break-even multiple is blank when net income is not positive', () => {
+    expect(valuate({ ...MO, netIncomePerShare: 0 }).breakEvenMultiple).toBeNull()
+    expect(valuate({ ...MO, netIncomePerShare: -1 }).breakEvenMultiple).toBeNull()
+    expect(valuate({ ...MO, netIncomePerShare: null }).breakEvenMultiple).toBeNull()
+  })
+  it('the break-even multiple goes negative when assets plus dividends already exceed the price', () => {
+    const r = valuate({ ...MO, assetsPerShare: 40, price: 50, dividendsPerShare: 2 }) // 40 + 22 = 62 > 50
+    expect(r.breakEvenMultiple!).toBeLessThan(0)
+    expect(r.alert2!).toBeGreaterThan(0)
+  })
+  it('alerts and VoI - Price are blank without a price or the needed value', () => {
+    const noPrice = valuate({ ...MO, price: null })
+    expect([noPrice.alert1, noPrice.alert2, noPrice.voiMinusPrice, noPrice.breakEvenMultiple]).toEqual([null, null, null, null])
+    const noAssets = valuate({ ...MO, assetsPerShare: null })
+    expect([noAssets.alert1, noAssets.alert2, noAssets.breakEvenMultiple]).toEqual([null, null, null])
+    expect(valuate({ ...MO, netIncomePerShare: null }).voiMinusPrice).toBeNull()
+  })
+})
+
+describe('isAlert', () => {
+  it('is on only above zero; zero, negative and missing are not alerts', () => {
+    expect(isAlert(0.01)).toBe(true)
+    expect(isAlert(42)).toBe(true)
+    expect(isAlert(0)).toBe(false)
+    expect(isAlert(-5)).toBe(false)
+    expect(isAlert(null)).toBe(false)
   })
 })

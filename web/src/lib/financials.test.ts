@@ -111,7 +111,7 @@ describe('ratioStack', () => {
   })
 
   it('flags a loss as extraordinary (2019: net income -1,293)', () => {
-    const loss = { ...y, netIncome: -1_293_000_000, revenue: 23_830_000_000, cogs: 7_085_000_000, operatingExpenses: 535_000_000 }
+    const loss = { ...y, netIncome: -1_293_000_000, netIncomeUsed: -1_293_000_000, revenue: 23_830_000_000, cogs: 7_085_000_000, operatingExpenses: 535_000_000 }
     const r = ratioStack(loss)!
     expect(r.netIncome).toBeLessThan(0)
     expect(r.extraordinary).toBe(true)
@@ -169,5 +169,51 @@ describe('yearChange', () => {
     expect(yearChange(5, null)).toBeNull()
     expect(yearChange(5, -3)).toBeNull()
     expect(yearChange(5, 0)).toBeNull()
+  })
+})
+
+describe('value history uses the lower of net income and continuing operations', () => {
+  it('lowers the income value when continuing operations is lower', () => {
+    const lowerCont = row('2023-12-31', { ...inc.v, net_income_from_continuing_operations: 4_000_000_000 })
+    const [y] = buildYears([lowerCont], [bal], [cf])
+    expect(y.netIncomeContPerShare).toBeCloseTo(4_000_000_000 / 1_763_462_000, 6)
+    const [p] = valueHistory([y], 11)
+    expect(p.incomeValue).toBeCloseTo(11 * (4_000_000_000 / 1_763_462_000), 6)
+  })
+  it('uses plain net income when continuing operations is missing', () => {
+    const [p] = valueHistory(buildYears([inc], [bal], [cf]), 11)
+    expect(p.incomeValue).toBeCloseTo(50.71, 2)
+  })
+})
+
+describe('credits are passed in, not fixed', () => {
+  it('buildYears applies the credits it is given', () => {
+    const [none] = buildYears([inc], [bal], [cf], { intangibles: 0, ppe: 0 })
+    const [half] = buildYears([inc], [bal], [cf], { intangibles: 0, ppe: 0.5 })
+    expect(half.assetsValue! - none.assetsValue!).toBeCloseTo(0.5 * 1_652_000_000, 0)
+  })
+})
+
+describe('net income used: the lower of net income and continuing operations', () => {
+  const lowerCont = row('2023-12-31', { ...inc.v, net_income_from_continuing_operations: 4_000_000_000 })
+
+  it('is the lower figure, and plain net income when continuing operations is missing', () => {
+    expect(buildYears([lowerCont], [bal], [cf])[0].netIncomeUsed).toBe(4_000_000_000)
+    expect(buildYears([inc], [bal], [cf])[0].netIncomeUsed).toBe(8_130_000_000)
+    const higherCont = row('2023-12-31', { ...inc.v, net_income_from_continuing_operations: 9_000_000_000 })
+    expect(buildYears([higherCont], [bal], [cf])[0].netIncomeUsed).toBe(8_130_000_000)
+  })
+
+  it('is missing when net income is missing', () => {
+    const noNi = row('2023-12-31', { ...inc.v, net_income: null, net_income_from_continuing_operations: 4_000_000_000 })
+    expect(buildYears([noNi], [bal], [cf])[0].netIncomeUsed).toBeNull()
+  })
+
+  it('the ratio stack uses it, and still adds to 100%', () => {
+    const r = ratioStack(buildYears([lowerCont], [bal], [cf])[0])!
+    expect(r.netIncome).toBeCloseTo(4_000_000_000 / 23_494_000_000, 6)
+    expect(r.other).toBeCloseTo((23_494_000_000 - 6_218_000_000 - 348_000_000 - 4_000_000_000) / 23_494_000_000, 6)
+    expect(r.cogs + r.operating + r.other + r.netIncome).toBeCloseTo(1, 10)
+    expect(r.extraordinary).toBe(false)
   })
 })

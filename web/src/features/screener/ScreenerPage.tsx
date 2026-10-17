@@ -10,6 +10,10 @@ import { COLUMNS, COLUMN_KEYS, DEFAULT_HIDDEN, REQUIRED } from './columns'
 import DetailsModal from './DetailsModal'
 import ColumnPicker from './ColumnPicker'
 import BulkBar from './BulkBar'
+import StockCombobox from '../../components/StockCombobox'
+import FilterSelect from '../../components/FilterSelect'
+import ClearButton from '../../components/ClearButton'
+import { stockOptions } from '../../lib/stockOptions'
 
 const PREFS_KEY = 'stamper.screener.columns'
 const COLLAPSE_KEY = 'stamper.screener.filtersCollapsed'
@@ -85,6 +89,7 @@ export default function ScreenerPage() {
 
   const active = [
     filters.search && `“${filters.search}”`,
+    filters.symbol && `Stock ${filters.symbol}`,
     filters.group && `Group ${filters.group}`,
     filters.category && `Category ${filters.category}`,
     filters.sector,
@@ -95,6 +100,7 @@ export default function ScreenerPage() {
   ].filter(Boolean) as string[]
 
   const groups = Object.keys(data.settings.groups).sort()
+  const searchOptions = stockOptions(rows.map((r) => ({ symbol: r.symbol, name: r.name })), null)
   const categories = uniqueSorted(rows.map((r) => r.category))
   const sectors = uniqueSorted(rows.map((r) => r.sector))
   const industries = uniqueSorted(
@@ -114,54 +120,52 @@ export default function ScreenerPage() {
           <button className="button button--ghost" onClick={() => setPicking(true)}>Columns</button>
         </div>
         {!collapsed && <div className="filters">
-        <label className="field">
-          <span>Search</span>
-          <input value={filters.search} onChange={(e) => set({ search: e.target.value })} placeholder="Symbol or name" />
-        </label>
-        <label className="field">
-          <span>Group</span>
-          <select value={filters.group ?? ''} onChange={(e) => set({ group: e.target.value || null })}>
-            <option value="">All</option>
-            {groups.map((g) => <option key={g}>{g}</option>)}
-          </select>
-        </label>
-        <label className="field">
-          <span>Category</span>
-          <select value={filters.category ?? ''} onChange={(e) => set({ category: e.target.value || null })}>
-            <option value="">All</option>
-            {categories.map((c) => <option key={c}>{c}</option>)}
-          </select>
-        </label>
-        <label className="field">
-          <span>Sector</span>
-          <select value={filters.sector ?? ''} onChange={(e) => set({ sector: e.target.value || null, industry: null })}>
-            <option value="">All</option>
-            {sectors.map((s) => <option key={s}>{s}</option>)}
-          </select>
-        </label>
-        <label className="field">
-          <span>Industry</span>
-          <select value={filters.industry ?? ''} onChange={(e) => set({ industry: e.target.value || null })}>
-            <option value="">All</option>
-            {industries.map((i) => <option key={i}>{i}</option>)}
-          </select>
-        </label>
-        <label className="field">
-          <span>Income basis</span>
-          <select value={basis} onChange={(e) => setBasis(e.target.value as Basis)}>
-            <option value="fy">Last full year</option>
-            <option value="ttm">Trailing four quarters</option>
-          </select>
-        </label>
+        <StockCombobox
+          label="Stock"
+          placeholder="Type a symbol or name"
+          options={searchOptions}
+          text={filters.symbol ?? filters.search}
+          onTextChange={(v) => set({ search: v, symbol: null })}
+          onPick={(symbol) => set({ symbol, search: '' })}
+          onClear={() => set({ symbol: null, search: '' })}
+        />
+        <FilterSelect
+          label="Group" value={filters.group ?? ''} defaultValue=""
+          options={[{ value: '', label: 'All' }, ...groups.map((g) => ({ value: g, label: g }))]}
+          onChange={(v) => set({ group: v || null })}
+        />
+        <FilterSelect
+          label="Category" value={filters.category ?? ''} defaultValue=""
+          options={[{ value: '', label: 'All' }, ...categories.map((c) => ({ value: c, label: c }))]}
+          onChange={(v) => set({ category: v || null })}
+        />
+        <FilterSelect
+          label="Sector" value={filters.sector ?? ''} defaultValue=""
+          options={[{ value: '', label: 'All' }, ...sectors.map((x) => ({ value: x, label: x }))]}
+          onChange={(v) => set({ sector: v || null, industry: null })}
+        />
+        <FilterSelect
+          label="Industry" value={filters.industry ?? ''} defaultValue=""
+          options={[{ value: '', label: 'All' }, ...industries.map((x) => ({ value: x, label: x }))]}
+          onChange={(v) => set({ industry: v || null })}
+        />
+        <FilterSelect
+          label="Income basis" value={basis} defaultValue="fy"
+          options={[{ value: 'fy', label: 'Last full year' }, { value: 'ttm', label: 'Trailing four quarters' }]}
+          onChange={(v) => setBasis(v as Basis)}
+        />
         <label className="field">
           <span>Min possible gain %</span>
-          <input
-            type="number" step="5" value={filters.minGain === null ? '' : filters.minGain * 100}
-            onChange={(e) => set({ minGain: e.target.value === '' ? null : Number(e.target.value) / 100 })}
-          />
+          <span className="clearable">
+            <input
+              type="number" step="5" value={filters.minGain === null ? '' : filters.minGain * 100}
+              onChange={(e) => set({ minGain: e.target.value === '' ? null : Number(e.target.value) / 100 })}
+            />
+            {filters.minGain !== null && <ClearButton label="Min possible gain" onClear={() => set({ minGain: null })} />}
+          </span>
         </label>
         <fieldset className="field field--tests">
-          <legend>Must pass</legend>
+          <legend>Must pass{filters.tests.length > 0 && <ClearButton label="Must pass" placement="inline" onClear={() => set({ tests: [] })} />}</legend>
           {TESTS.map((t) => (
             <label key={t.key} className="check">
               <input type="checkbox" checked={filters.tests.includes(t.key)} onChange={() => toggleTest(t.key)} />

@@ -35,6 +35,7 @@
   --color-positive: #176846;
   --color-negative: #a83232;
   --color-warning: #8a5400;
+  --color-flag-bg: #f5c882; /* highlighted cells, e.g. Alert 2 above zero */
 
   /* Chart series, in order of use (stable, independent of logo accents) */
   --chart-1: #1e6fa8;
@@ -87,6 +88,7 @@
   --color-positive: #69dba5;
   --color-negative: #ff9898;
   --color-warning: #ffd18a;
+  --color-flag-bg: #7a4a0e;
 
   --chart-1: #63d7ed;
   --chart-2: #2dc4b6;

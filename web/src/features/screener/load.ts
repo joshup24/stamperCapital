@@ -1,6 +1,7 @@
 // Loads everything the screener needs from Supabase and shapes it for lib/screener.ts.
 import { supabase } from '../../lib/supabase'
 import type { Component, UserSettings } from '../../lib/screener'
+import { DEFAULT_CREDITS } from '../../lib/financials'
 
 type Raw = Record<string, unknown>
 
@@ -35,15 +36,30 @@ function toComponent(r: Raw): Component {
     price: num(r.price),
     priceDate: str(r.price_date),
     assetsPerShare: num(r.assets_per_share),
+    // absent on a database that has not had the v2 view yet: the app then falls back to assetsPerShare
+    assetParts: 'total_assets_per_share' in r
+      ? {
+          totalAssets: num(r.total_assets_per_share),
+          totalLiabilities: num(r.total_liabilities_per_share),
+          intangibles: num(r.intangibles_per_share),
+          ppe: num(r.ppe_per_share),
+        }
+      : null,
+    shares: num(r.shares),
+    currency: str(r.currency),
     fy: {
       netIncome: num(r.fy_net_income_per_share),
+      netIncomeCont: num(r.fy_net_income_cont_per_share),
       ebitda: num(r.fy_ebitda_per_share),
       dividends: num(r.fy_dividends_per_share),
+      revenue: num(r.fy_revenue),
     },
     ttm: {
       netIncome: num(r.ttm_net_income_per_share),
+      netIncomeCont: num(r.ttm_net_income_cont_per_share),
       ebitda: num(r.ttm_ebitda_per_share),
       dividends: num(r.ttm_dividends_per_share),
+      revenue: num(r.ttm_revenue),
     },
     balanceSheetDate: str(r.balance_sheet_date),
     anyOverridden: r.any_overridden === true,
@@ -104,7 +120,18 @@ export async function loadSettings(): Promise<UserSettings> {
 
   const defaultMultiple = num(setting[0]?.default_multiple) ?? num(param[0]?.default_multiple) ?? 11
 
-  return { defaultMultiple, user, shared, userCategory, groups }
+  // How much of the balance sheet counts as value: the user's own setting, else the shared default.
+  const sharedCredits = {
+    intangibles: num(param[0]?.intangibles_credit) ?? DEFAULT_CREDITS.intangibles,
+    ppe: num(param[0]?.ppe_credit) ?? DEFAULT_CREDITS.ppe,
+  }
+  const userCredits = { intangibles: num(setting[0]?.intangibles_credit), ppe: num(setting[0]?.ppe_credit) }
+  const credits = {
+    intangibles: userCredits.intangibles ?? sharedCredits.intangibles,
+    ppe: userCredits.ppe ?? sharedCredits.ppe,
+  }
+
+  return { defaultMultiple, credits, sharedCredits, userCredits, user, shared, userCategory, groups }
 }
 
 /** Every stock the database knows (the ticker table), including ones without statements yet. */

@@ -7,13 +7,17 @@ import {
 const base: Component = {
   symbol: 'MO', name: 'Altria Group', sector: 'Consumer Staples', industry: 'Tobacco', category: null,
   price: 49.33, priceDate: '2026-10-09', assetsPerShare: -14.06,
-  fy: { netIncome: 4.61, ebitda: 6.92, dividends: 3.84 },
-  ttm: { netIncome: null, ebitda: null, dividends: null },
+  assetParts: null, shares: 1_763_462_000, currency: 'USD',
+  fy: { netIncome: 4.61, netIncomeCont: null, ebitda: 6.92, dividends: 3.84, revenue: 23_494_000_000 },
+  ttm: { netIncome: null, netIncomeCont: null, ebitda: null, dividends: null, revenue: null },
   balanceSheetDate: '2026-06-30', anyOverridden: false, fxMissing: false,
 }
 
 const empty: UserSettings = {
   defaultMultiple: 11,
+  credits: { intangibles: 0, ppe: 0.5 },
+  sharedCredits: { intangibles: 0, ppe: 0.5 },
+  userCredits: { intangibles: null, ppe: null },
   user: { ticker: {}, category: {}, industry: {}, sector: {} },
   shared: { category: {}, industry: {}, sector: {} },
   userCategory: {},
@@ -76,7 +80,7 @@ describe('passes and filters', () => {
     { ...base, symbol: 'ZZZ', name: 'Zed', sector: 'Energy', industry: 'Oil', price: 200, assetsPerShare: 5 },
     empty, 'fy',
   )
-  const gap = buildRow({ ...base, symbol: 'GAP', fy: { netIncome: null, ebitda: null, dividends: 0 } }, empty, 'fy')
+  const gap = buildRow({ ...base, symbol: 'GAP', fy: { ...base.fy, netIncome: null, ebitda: null, dividends: 0 } }, empty, 'fy')
   const rows = [mo, cheap, gap]
 
   it('total value test', () => {
@@ -107,6 +111,15 @@ describe('passes and filters', () => {
     expect(tagged.category).toBe('SIN')
     const out = applyFilters([tagged, other], { ...NO_FILTERS, category: 'SIN' }, {})
     expect(out.map((r) => r.symbol)).toEqual(['MO'])
+  })
+
+  it('search matches partial text in the symbol or name, ignoring punctuation', () => {
+    expect(applyFilters(rows, { ...NO_FILTERS, search: 'zz' }, {}).map((r) => r.symbol)).toEqual(['ZZZ'])
+    expect(applyFilters(rows, { ...NO_FILTERS, search: 'altr' }, {}).map((r) => r.symbol)).toEqual(['MO', 'GAP'])
+  })
+
+  it('a chosen symbol narrows to exactly that stock, not other partial matches', () => {
+    expect(applyFilters(rows, { ...NO_FILTERS, symbol: 'MO' }, {}).map((r) => r.symbol)).toEqual(['MO'])
   })
 
   it('minimum gain excludes rows with no gain figure', () => {
@@ -140,5 +153,51 @@ describe('sortBy', () => {
   it('sorts numbers numerically, not as text', () => {
     const items = [{ v: 10 }, { v: 9 }, { v: 100 }]
     expect(sortBy(items, (i) => i.v, false).map((i) => i.v)).toEqual([9, 10, 100])
+  })
+})
+
+describe('balance sheet credits are the user\'s own setting', () => {
+  // per share, USD: assets 38.57, liabilities 42.06, intangibles 20.48, PP&E 1.65 (MO, 2023-ish)
+  const parts = { totalAssets: 38.57, totalLiabilities: 42.06, intangibles: 20.48, ppe: 1.65 }
+  const withParts = { ...base, assetParts: parts, assetsPerShare: 999 }
+
+  it('0% of intangibles and 50% of PP&E gives the report\'s value of assets', () => {
+    const r = buildRow(withParts, empty, 'fy')
+    expect(r.valuation.assetsValue).toBeCloseTo(38.57 - 42.06 - 20.48 - 0.5 * 1.65, 6)
+  })
+
+  it('a different credit changes the answer, so nothing is hard-coded', () => {
+    const generous = { ...empty, credits: { intangibles: 0.25, ppe: 1 } }
+    const r = buildRow(withParts, generous, 'fy')
+    expect(r.valuation.assetsValue).toBeCloseTo(38.57 - 42.06 - 0.75 * 20.48, 6)
+    expect(r.valuation.assetsValue!).toBeGreaterThan(buildRow(withParts, empty, 'fy').valuation.assetsValue!)
+  })
+
+  it('falls back to the precomputed assets per share when the view has no parts', () => {
+    expect(buildRow({ ...base, assetParts: null, assetsPerShare: -14.06 }, empty, 'fy').valuation.assetsValue).toBe(-14.06)
+  })
+
+  it('missing liabilities keep the value missing instead of becoming zero', () => {
+    const r = buildRow({ ...base, assetParts: { ...parts, totalLiabilities: null } }, empty, 'fy')
+    expect(r.valuation.assetsValue).toBeNull()
+  })
+})
+
+describe('Equity Summary columns on a row', () => {
+  it('market cap is shares x price in thousands, revenue in thousands, currency passes through', () => {
+    const r = buildRow({ ...base, shares: 1_000_000_000, price: 50, currency: 'CAD' }, empty, 'fy')
+    expect(r.marketCap000s).toBe(50_000_000)
+    expect(r.revenue000s).toBe(23_494_000)
+    expect(r.currency).toBe('CAD')
+  })
+
+  it('market cap and revenue stay missing when their inputs are missing', () => {
+    expect(buildRow({ ...base, shares: null }, empty, 'fy').marketCap000s).toBeNull()
+    expect(buildRow(base, empty, 'ttm').revenue000s).toBeNull()
+  })
+
+  it('income value uses the lower of net income and continuing operations', () => {
+    const lower = buildRow({ ...base, fy: { ...base.fy, netIncome: 4.61, netIncomeCont: 3.0 } }, empty, 'fy')
+    expect(lower.valuation.incomeValue).toBeCloseTo(11 * 3.0, 6)
   })
 })

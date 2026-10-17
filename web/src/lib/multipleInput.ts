@@ -32,3 +32,17 @@ export function ruleProblem(kind: RuleKind, name: string, multipleText: string, 
   if (parseMultiple(multipleText) === null) return `Multiple must be a number above 0 and up to ${MAX_MULTIPLE}.`
   return null
 }
+
+/** "50", "50%" or "12.5" -> 0.5, 0.5, 0.125. Anything outside 0-100, empty or junk -> null. */
+export function parseCredit(text: string): number | null {
+  const t = text.trim().replace(/%$/, '').trim()
+  if (t === '') return null
+  const n = Number(t)
+  if (!Number.isFinite(n) || n < 0 || n > 100) return null
+  return n / 100
+}
+
+/** 0.5 -> "50", 0.125 -> "12.5" (for showing in a percent box). */
+export function creditToPercentText(credit: number): string {
+  return String(Math.round(credit * 1000) / 10)
+}

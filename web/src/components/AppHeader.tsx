@@ -18,6 +18,7 @@ export default function AppHeader({ email, onSignOut }: Props) {
       </Link>
       <nav className="app-nav" aria-label="Main">
         <NavLink to="/" end>Screener</NavLink>
+        <NavLink to="/stock">Stock</NavLink>
         <NavLink to="/multiples">Multiples</NavLink>
         <NavLink to="/import">Import</NavLink>
       </nav>

@@ -27,15 +27,18 @@ def read(path):
 
 
 def parse_summary(text):
-    """key: value lines -> dict; every 'error:' line goes into a list."""
-    fields, errors = {}, []
+    """key: value lines -> dict; every 'error:' and 'warning:' line goes into its own list."""
+    fields, errors, warnings = {}, [], []
     for line in text.splitlines():
         key, _, value = line.partition(": ")
         if key == "error":
             errors.append(value)
+        elif key == "warning":
+            warnings.append(value)
         elif key:
             fields.setdefault(key, value)
     fields["error_list"] = errors
+    fields["warning_list"] = warnings
     return fields
 
 
@@ -64,6 +67,10 @@ def build_message(summary_text, log_text, sender, to, run_url="", event="", run_
         body.append(f"  tickers with no company data (prices and quotes only): {f['no_data_tickers']}")
     body += ["", "ERRORS THAT SURVIVED ALL RETRIES (these were skipped and are tried again next run)"]
     body += [f"  {e}" for e in f["error_list"]] or ["  none"]
+    body += ["", "WARNINGS (stocks with no company data whose prices were rejected; these do not fail the run)"]
+    body += [f"  {w}" for w in f["warning_list"]] or ["  none"]
+    if f.get("parked_prices", "0") != "0":
+        body.append(f"  prices left alone this run for {f['parked_prices']} stock(s) that keep failing (each is rechecked once its set-aside period ends)")
     body += ["", f"RETRIES AND FAILURES ({len(log_lines)} lines)"]
     body += [f"  {l}" for l in shown] or ["  none: nothing needed a retry"]
     if len(log_lines) > len(shown):
